@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
       - name: frontend-service
-        image: <ACR_LOGIN_SERVER>/frontend-service:latest
+        image: denisdbell/frontend-service:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8080

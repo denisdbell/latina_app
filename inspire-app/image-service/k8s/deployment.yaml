@@ -18,8 +18,8 @@ spec:
     spec:
       containers:
       - name: image-service
-        # Replace <ACR_LOGIN_SERVER> with your ACR, e.g. acrpetclinicdevoyyzir.azurecr.io
-        image: <ACR_LOGIN_SERVER>/image-service:latest
+        # Replacedenisdbell with your ACR, e.g. acrpetclinicdevoyyzir.azurecr.io
+        image:denisdbell/image-service:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8080

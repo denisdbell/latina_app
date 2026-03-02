@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
       - name: phrase-service
-        image: <ACR_LOGIN_SERVER>/phrase-service:latest
+        image:denisdbell/phrase-service:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
