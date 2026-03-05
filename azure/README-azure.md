@@ -1,27 +1,50 @@
 # Azure Deployment Guide - Inspire App
 
-This guide covers deploying the three-tier Inspire App to Azure Kubernetes Service (AKS) using ARM templates and Azure DevOps pipelines.
+This guide covers deploying the three-tier Inspire App to Azure Kubernetes Service (AKS) using ARM templates and Azure DevOps (ADO) pipelines.
 
-## Architecture
+## Architecture Overview
+
+### Shared Infrastructure Model
+
+This deployment uses a **single shared AKS cluster** with **namespace-based environment separation**:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Azure Infrastructure                      │
-├─────────────────────────────────────────────────────────────┤
-│                                                               │
-│  ┌─────────────────┐    ┌─────────────────────────────────┐ │
-│  │ Azure Container │    │   Azure Kubernetes Service      │ │
-│  │    Registry     │───▶│         (AKS Cluster)           │ │
-│  │     (ACR)       │    │                                 │ │
-│  └─────────────────┘    │  ┌───────────────────────────┐  │ │
-│                         │  │ inspire namespace         │  │ │
-│                         │  │  ├── frontend-service     │  │ │
-│                         │  │  ├── image-service        │  │ │
-│                         │  │  └── phrase-service       │  │ │
-│                         │  └───────────────────────────┘  │ │
-│                         └─────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        Azure Resource Group: rg-inspire                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────────┐     ┌──────────────────────────────────────┐  │
+│  │   Azure Container       │     │     Azure Kubernetes Service         │  │
+│  │   Registry (ACR)        │────▶│         (aks-inspire-shared)         │  │
+│  │   acrinspire<suffix>     │     │                                       │  │
+│  └─────────────────────────┘     │  ┌─────────────────────────────────┐│  │
+│                                  │  │ inspire namespace (dev)          ││  │
+│                                  │  │  ├── image-service               ││  │
+│                                  │  │  ├── phrase-service              ││  │
+│                                  │  │  └── frontend-service (LoadBalancer)│
+│                                  │  └─────────────────────────────────┘│  │
+│                                  │  ┌─────────────────────────────────┐│  │
+│                                  │  │ inspire-testing namespace        ││  │
+│                                  │  │  └── ...services...              ││  │
+│                                  │  └─────────────────────────────────┘│  │
+│                                  │  ┌─────────────────────────────────┐│  │
+│                                  │  │ inspire-prod namespace           ││  │
+│                                  │  │  └── ...services...              ││  │
+│                                  │  └─────────────────────────────────┘│  │
+│                                  └──────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Resource Names (from ARM Template)
+
+| Resource | Name | Notes |
+|----------|------|-------|
+| Resource Group | `rg-inspire` | Contains all resources |
+| AKS Cluster | `aks-inspire-shared` | Single cluster, multiple namespaces |
+| ACR | `acrinspire<suffix>` | Shared container registry |
+| VNet | `vnet-inspire` | Virtual network (10.0.0.0/16) |
+| Subnet | `snet-aks` | AKS subnet (10.0.0.0/22) |
+| NSG | `nsg-inspire` | Allows HTTP/HTTPS inbound |
 
 ---
 
@@ -31,224 +54,302 @@ This guide covers deploying the three-tier Inspire App to Azure Kubernetes Servi
 - Azure CLI installed (`az`)
 - kubectl installed
 - Docker installed
-- Azure DevOps project with access to create pipelines
+- Azure DevOps project with permissions to create pipelines and service connections
 
 ---
 
-## Repository Structure
+## Step 1: Create Resource Group and Deploy Infrastructure
 
-```
-azure/
-├── arm/
-│   ├── main.json                      # Main ARM template
-│   ├── main.parameters.dev.json       # Dev environment parameters
-│   ├── main.parameters.test.json      # Test environment parameters
-│   └── main.parameters.prod.json      # Prod environment parameters
-├── pipelines/
-│   ├── image-service.yml              # Image service pipeline
-│   ├── phrase-service.yml             # Phrase service pipeline
-│   └── frontend-service.yml           # Frontend service pipeline
-└── templates/
-    ├── build.yaml                     # Shared build template
-    ├── deploy.yaml                    # Shared deploy template
-    └── promote-acr.yaml               # ACR promotion template
-```
-
----
-
-## Step 1: Create Resource Groups
-
-Create a resource group for each environment:
+### 1.1 Create Resource Group
 
 ```bash
-# Dev
-az group create --name rg-inspire-dev --location eastus
-
-# Test
-az group create --name rg-inspire-test --location eastus
-
-# Prod
-az group create --name rg-inspire-prod --location eastus
+# Create the resource group (use westus3 or your preferred region)
+az group create --name rg-inspire --location westus3
 ```
 
----
-
-## Step 2: Deploy ARM Templates
-
-### Deploy to Development
+### 1.2 Deploy ARM Template
 
 ```bash
+# Deploy infrastructure
 az deployment group create \
-  --resource-group rg-inspire-dev \
+  --resource-group rg-inspire \
   --template-file azure/arm/main.json \
-  --parameters @azure/arm/main.parameters.dev.json
+  --parameters uniqueSuffix=inspire1
 ```
 
-### Deploy to Testing
+### 1.3 Capture Deployment Outputs
+
+After deployment completes, note the outputs:
 
 ```bash
-az deployment group create \
-  --resource-group rg-inspire-test \
-  --template-file azure/arm/main.json \
-  --parameters @azure/arm/main.parameters.test.json
+# View all outputs
+az deployment group show \
+  --resource-group rg-inspire \
+  --name main \
+  --query properties.outputs
+
+# Sample output:
+# {
+#   "acrLoginServer": {"value": "acrinspireinspire1.azurecr.io"},
+#   "acrName": {"value": "acrinspireinspire1"},
+#   "aksName": {"value": "aks-inspire-shared"},
+#   "postDeploySteps": {"value": "az aks get-credentials --resource-group rg-inspire --name aks-inspire-shared && kubectl apply -f k8s/namespaces.yaml"}
+# }
 ```
 
-### Deploy to Production
+### 1.4 Get AKS Credentials and Create Namespaces
 
 ```bash
-az deployment group create \
-  --resource-group rg-inspire-prod \
-  --template-file azure/arm/main.json \
-  --parameters @azure/arm/main.parameters.prod.json
-```
+# Get AKS credentials (this merges into your ~/.kube/config)
+az aks get-credentials --resource-group rg-inspire --name aks-inspire-shared
 
-### Capture Deployment Outputs
+# Create the inspire namespace
+kubectl apply -f k8s/namespace.yaml
 
-After deployment, note the outputs:
-
-```bash
-# Get ACR login server
-az acr show --name acrinspiredev --query loginServer -o tsv
-
-# Get AKS credentials
-az aks get-credentials --resource-group rg-inspire-dev --name aks-inspire-dev
+# For testing and production namespaces, create additional namespaces:
+kubectl create namespace inspire-testing
+kubectl create namespace inspire-prod
 ```
 
 ---
 
-## Step 3: Grant ACR Pull Access to AKS
+## Step 2: Configure Azure DevOps
 
-The AKS cluster needs permission to pull images from ACR:
+### 2.1 Create Service Connections
 
-```bash
-# Get AKS kubelet identity object ID
-AKS_OBJECT_ID=$(az aks show --resource-group rg-inspire-dev --name aks-inspire-dev --query identityProfile.kubeletidentity.objectId -o tsv)
+Navigate to **Project Settings > Service connections** and create:
 
-# Get ACR resource ID
-ACR_ID=$(az acr show --name acrinspiredev --query id -o tsv)
+#### Kubernetes Service Connection
 
-# Assign AcrPull role
-az role assignment create --assignee $AKS_OBJECT_ID --role AcrPull --scope $ACR_ID
-```
+| Setting | Value |
+|---------|-------|
+| Name | `aks-service-connection` |
+| Type | Kubernetes |
+| Authentication | Azure Subscription |
+| Subscription | Your Azure subscription |
+| Cluster | `aks-inspire-shared` |
+| Namespace | `default` (or leave empty for all namespaces) |
 
-Repeat for test and prod environments.
+#### Docker Registry Service Connection
 
----
+| Setting | Value |
+|---------|-------|
+| Name | `acr-service-connection` |
+| Type | Docker Registry |
+| Registry | Azure Container Registry |
+| Subscription | Your Azure subscription |
+| ACR | `acrinspireinspire1` (or your ACR name) |
 
-## Step 4: Configure Azure DevOps
-
-### 4.1 Create Service Connections
-
-Create the following service connections in Azure DevOps:
-
-| Name | Type | Purpose |
-|------|------|---------|
-| `aks-service-connection` | Kubernetes | Connect to AKS cluster |
-| `dev-acr-service-connection` | Docker Registry | Dev ACR |
-| `test-acr-service-connection` | Docker Registry | Test ACR |
-| `prod-acr-service-connection` | Docker Registry | Prod ACR |
-
-#### Create Kubernetes Service Connection
-
-1. Go to Project Settings > Service connections
-2. New service connection > Kubernetes
-3. Select "Azure Subscription"
-4. Choose subscription, cluster, and namespace
-
-#### Create Docker Registry Service Connection
-
-1. Go to Project Settings > Service connections
-2. New service connection > Docker Registry
-3. Select "Azure Container Registry"
-4. Choose subscription and ACR
-
-### 4.2 Create Pipeline Templates Repository
+### 2.2 Create Pipeline Templates Repository
 
 Create a repository named `pipeline-templates` in your Azure DevOps project:
 
 ```bash
-# Create a new repository
+# From the repository root
 git init pipeline-templates
 cd pipeline-templates
-
-# Copy templates
 cp -r ../azure/templates/* .
-
-# Push to Azure DevOps
-git remote add origin https://dev.azure.com/your-org/your-project/_git/pipeline-templates
 git add .
 git commit -m "Add pipeline templates"
+git remote add origin https://dev.azure.com/YOUR-ORG/YOUR-PROJECT/_git/pipeline-templates
 git push -u origin main
 ```
 
-### 4.3 Update Pipeline Variables
+### 2.3 Update Pipeline Variables
 
-Edit each pipeline file and update:
+Edit each pipeline file (`azure/pipelines/*.yml`) and update the `uniqueSuffix` variable to match your deployment:
 
 ```yaml
 variables:
-  # Update the unique suffix from your ARM deployment
-  uniqueSuffix: 'dev001'  # Replace with actual suffix
+  # UPDATE THIS: Match the uniqueSuffix from your ARM deployment
+  uniqueSuffix: 'inspire1'
 
-  # Update service connection names if different
+  # Service connections (adjust names if different)
   aksServiceConnection: 'aks-service-connection'
-  devAcrConnection: 'dev-acr-service-connection'
+```
+
+**Important:** If using a single ACR (shared infrastructure model), also update the ACR connection variables:
+
+```yaml
+# For shared ACR model, use same ACR for all environments:
+devAcrConnection: 'acr-service-connection'
+devAcrLoginServer: 'acrinspire$(uniqueSuffix).azurecr.io'
+testAcrConnection: 'acr-service-connection'
+testAcrLoginServer: 'acrinspire$(uniqueSuffix).azurecr.io'
+prodAcrConnection: 'acr-service-connection'
+prodAcrLoginServer: 'acrinspire$(uniqueSuffix).azurecr.io'
 ```
 
 ---
 
-## Step 5: Create Pipelines
+## Step 3: Create ADO Pipelines
 
-### Create Pipeline for Each Service
+### 3.1 Create Pipelines for Each Service
 
-1. Go to Pipelines > New pipeline
-2. Select "Azure Repos Git"
+1. Navigate to **Pipelines > New pipeline**
+2. Select **Azure Repos Git** (or your repository source)
 3. Select your repository
-4. Select "Existing Azure Pipelines YAML file"
+4. Choose **Existing Azure Pipelines YAML file**
 5. Select the pipeline file:
    - `/azure/pipelines/image-service.yml`
    - `/azure/pipelines/phrase-service.yml`
    - `/azure/pipelines/frontend-service.yml`
 
+6. Review and **Save** (don't run yet)
+
+### 3.2 Pipeline Execution Order
+
+Run pipelines in this order to ensure dependencies are available:
+
+1. **image-service** - Build and deploy image service first
+2. **phrase-service** - Build and deploy phrase service second
+3. **frontend-service** - Build and deploy frontend service last (depends on other services)
+
 ---
 
-## Step 6: Manual Deployment (Alternative)
+## Step 4: Deploy and Access the Application
 
-If you prefer manual deployment without pipelines:
+### 4.1 Trigger Deployments
+
+Trigger each pipeline in order:
+
+1. Go to Pipelines, select the `image-service` pipeline, click **Run pipeline**
+2. Wait for completion, then trigger `phrase-service`
+3. Wait for completion, then trigger `frontend-service`
+
+### 4.2 Access the Application
+
+The application is exposed via a **LoadBalancer service**. After deployment:
+
+```bash
+# Get the external IP address
+kubectl get svc frontend-service -n inspire
+
+# Output:
+# NAME               TYPE           CLUSTER-IP     EXTERNAL-IP     PORT(S)        AGE
+# frontend-service   LoadBalancer   10.1.123.456   20.123.45.67    80:31234/TCP   5m
+```
+
+#### Access URLs
+
+| Environment | Namespace | Access Method | URL |
+|-------------|-----------|---------------|-----|
+| Development | `inspire` | LoadBalancer | `http://<EXTERNAL-IP>` |
+| Testing | `inspire-testing` | LoadBalancer | `http://<EXTERNAL-IP>` (get via kubectl) |
+| Production | `inspire-prod` | LoadBalancer | `http://<EXTERNAL-IP>` (get via kubectl) |
+
+#### API Endpoints
+
+Once the application is running, access:
+
+| Endpoint | Description |
+|----------|-------------|
+| `http://<EXTERNAL-IP>/` | Frontend UI |
+| `http://<EXTERNAL-IP>/api/image` | Image service API |
+| `http://<EXTERNAL-IP>/api/phrase` | Phrase service API |
+| `http://<EXTERNAL-IP>/api/config` | Frontend config API |
+
+### 4.3 Verify Deployment
+
+```bash
+# Check all pods are running
+kubectl get pods -n inspire
+
+# Check all services
+kubectl get svc -n inspire
+
+# Check deployments
+kubectl get deployments -n inspire
+
+# View frontend service details
+kubectl describe svc frontend-service -n inspire
+```
+
+---
+
+## Pipeline Flow
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                         Pipeline Stages                                │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│  ┌─────────┐    ┌──────────┐    ┌─────────┐    ┌──────────┐         │
+│  │  Build  │───▶│ DeployDev│───▶│ Approval│───▶│DeployTest│         │
+│  │         │    │(inspire) │    │ Testing │    │(inspire- │         │
+│  └─────────┘    └──────────┘    └─────────┘    │ testing) │         │
+│                                                 └──────────┘         │
+│                                                       │              │
+│                                                       ▼              │
+│  ┌─────────┐    ┌──────────┐                           │             │
+│  │ Deploy  │◀───│ Approval │◀──────────────────────────┘             │
+│  │  Prod   │    │   Prod   │                                         │
+│  │(inspire-│    │          │                                         │
+│  │  prod)  │    │          │                                         │
+│  └─────────┘    └──────────┘                                         │
+│                                                                       │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Stage Descriptions
+
+| Stage | Description | Namespace |
+|-------|-------------|-----------|
+| Build | Maven build + tests, Docker build & push to ACR | N/A |
+| DeployDev | Deploy to development environment | `inspire` |
+| ApproveTesting | Manual validation gate | N/A |
+| DeployTest | Deploy to testing environment | `inspire-testing` |
+| ApproveProd | Manual validation gate | N/A |
+| DeployProd | Deploy to production environment | `inspire-prod` |
+
+---
+
+## Manual Deployment (Alternative)
+
+If you prefer manual deployment without ADO pipelines:
 
 ### Build and Push Images
 
 ```bash
 # Login to ACR
-az acr login --name acrinspiredev
+ACR_NAME=$(az acr list --resource-group rg-inspire --query '[0].name' -o tsv)
+az acr login --name $ACR_NAME
 
 # Set ACR login server
-ACR=acrinspiredev.azurecr.io
+ACR_LOGIN_SERVER=$(az acr show --name $ACR_NAME --query loginServer -o tsv)
 
-# Build and push images
-docker build -f image-service/Dockerfile -t $ACR/image-service:latest .
-docker build -f phrase-service/Dockerfile -t $ACR/phrase-service:latest .
-docker build -f frontend-service/Dockerfile -t $ACR/frontend-service:latest .
+# Build and push all services
+# Image Service
+docker build -f image-service/Dockerfile -t $ACR_LOGIN_SERVER/image-service:latest .
+docker push $ACR_LOGIN_SERVER/image-service:latest
 
-docker push $ACR/image-service:latest
-docker push $ACR/phrase-service:latest
-docker push $ACR/frontend-service:latest
+# Phrase Service
+docker build -f phrase-service/Dockerfile -t $ACR_LOGIN_SERVER/phrase-service:latest .
+docker push $ACR_LOGIN_SERVER/phrase-service:latest
+
+# Frontend Service
+docker build -f frontend-service/Dockerfile -t $ACR_LOGIN_SERVER/frontend-service:latest .
+docker push $ACR_LOGIN_SERVER/frontend-service:latest
+```
+
+### Update Kubernetes Manifests
+
+Edit the deployment files to use your ACR:
+
+```bash
+# Update image references in deployments
+sed -i "s|<ACR_LOGIN_SERVER>|$ACR_LOGIN_SERVER|g" image-service/k8s/deployment.yaml
+sed -i "s|<ACR_LOGIN_SERVER>|$ACR_LOGIN_SERVER|g" phrase-service/k8s/deployment.yaml
+sed -i "s|<ACR_LOGIN_SERVER>|$ACR_LOGIN_SERVER|g" frontend-service/k8s/deployment.yaml
 ```
 
 ### Deploy to AKS
 
 ```bash
-# Get AKS credentials
-az aks get-credentials --resource-group rg-inspire-dev --name aks-inspire-dev
-
-# Update deployment manifests with ACR login server
-sed -i "s|<ACR_LOGIN_SERVER>|$ACR|g" image-service/k8s/deployment.yaml
-sed -i "s|<ACR_LOGIN_SERVER>|$ACR|g" phrase-service/k8s/deployment.yaml
-sed -i "s|<ACR_LOGIN_SERVER>|$ACR|g" frontend-service/k8s/deployment.yaml
-
-# Apply Kubernetes manifests
+# Apply namespace first
 kubectl apply -f k8s/namespace.yaml
 
+# Deploy services
 kubectl apply -f image-service/k8s/service.yaml
 kubectl apply -f image-service/k8s/deployment.yaml
 
@@ -259,51 +360,128 @@ kubectl apply -f frontend-service/k8s/service.yaml
 kubectl apply -f frontend-service/k8s/deployment.yaml
 ```
 
-### Verify Deployment
+### Get External IP
 
 ```bash
-# Watch pods become ready
-kubectl get pods -n inspire --watch
+# Watch for external IP (may take 2-3 minutes)
+kubectl get svc frontend-service -n inspire --watch
 
-# Get the public IP
-kubectl get svc frontend-service -n inspire
-
-# Open http://<EXTERNAL-IP> in your browser
+# Once EXTERNAL-IP appears, access the app:
+# http://<EXTERNAL-IP>
 ```
 
 ---
 
-## Pipeline Flow
+## Using Ingress (Optional)
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                         Pipeline Stages                               │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                       │
-│  ┌─────────┐    ┌──────────┐    ┌─────────┐    ┌──────────┐         │
-│  │  Build  │───▶│ DeployDev│───▶│ Approval│───▶│DeployTest│         │
-│  │         │    │          │    │ Testing │    │          │         │
-│  └─────────┘    └──────────┘    └─────────┘    └──────────┘         │
-│                                                       │              │
-│                                                       ▼              │
-│  ┌─────────┐    ┌──────────┐                           │             │
-│  │ Deploy  │◀───│ Approval │◀──────────────────────────┘             │
-│  │  Prod   │    │   Prod   │                                         │
-│  └─────────┘    └──────────┘                                         │
-│                                                                       │
-└──────────────────────────────────────────────────────────────────────┘
+For production environments, consider using an Ingress Controller instead of LoadBalancer services.
+
+### Install NGINX Ingress Controller
+
+```bash
+# Add NGINX Ingress Helm repo
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+
+# Install NGINX Ingress Controller
+helm install ingress-nginx ingress-nginx/ingress-nginx \
+  --namespace ingress-nginx --create-namespace
 ```
 
-### Stage Descriptions
+### Apply Ingress Rules
 
-| Stage | Description |
-|-------|-------------|
-| Build | Maven build + tests, Docker build & push to Dev ACR |
-| DeployDev | Deploy to development AKS namespace |
-| ApproveTesting | Manual validation gate |
-| DeployTest | Promote image to Test ACR, deploy to test namespace |
-| ApproveProd | Manual validation gate |
-| DeployProd | Promote image to Prod ACR, deploy to prod namespace |
+```bash
+# Apply the ingress configuration
+kubectl apply -f k8s/ingress.yaml
+```
+
+### Access via Ingress
+
+```bash
+# Get ingress controller IP
+kubectl get svc ingress-nginx-controller -n ingress-nginx
+
+# Add to /etc/hosts (for local testing)
+# <INGRESS-IP> inspire.local
+
+# Access: http://inspire.local/
+```
+
+---
+
+## Troubleshooting
+
+### Check Pod Status
+
+```bash
+# List pods in namespace
+kubectl get pods -n inspire
+
+# Describe pod for details
+kubectl describe pod <pod-name> -n inspire
+
+# View pod logs
+kubectl logs <pod-name> -n inspire
+
+# Stream logs
+kubectl logs -f <pod-name> -n inspire
+```
+
+### Image Pull Errors
+
+```bash
+# Verify ACR images exist
+az acr repository list --name $ACR_NAME
+
+# Check if AKS has pull access
+az aks show --resource-group rg-inspire --name aks-inspire-shared \
+  --query identityProfile.kubeletidentity.objectId -o tsv
+
+# If needed, assign AcrPull role
+AKS_IDENTITY=$(az aks show --resource-group rg-inspire --name aks-inspire-shared --query identityProfile.kubeletidentity.objectId -o tsv)
+ACR_ID=$(az acr show --name $ACR_NAME --query id -o tsv)
+az role assignment create --assignee $AKS_IDENTITY --role AcrPull --scope $ACR_ID
+```
+
+### Service Not Accessible
+
+```bash
+# Check service type and external IP
+kubectl get svc -n inspire
+
+# For LoadBalancer, check if Azure LB is provisioning
+kubectl describe svc frontend-service -n inspire
+
+# Test internal connectivity
+kubectl run test --rm -it --image=curlimages/curl -- curl http://frontend-service.inspire.svc.cluster.local
+```
+
+### Deployment Not Progressing
+
+```bash
+# Check deployment status
+kubectl rollout status deployment/image-service -n inspire
+kubectl rollout status deployment/phrase-service -n inspire
+kubectl rollout status deployment/frontend-service -n inspire
+
+# Check events for issues
+kubectl get events -n inspire --sort-by='.lastTimestamp'
+```
+
+---
+
+## Clean Up Resources
+
+```bash
+# Delete all Kubernetes resources in namespace
+kubectl delete all --all -n inspire
+
+# Delete namespace
+kubectl delete namespace inspire
+
+# Delete entire Azure infrastructure
+az group delete --name rg-inspire --yes --no-wait
+```
 
 ---
 
@@ -313,141 +491,7 @@ kubectl get svc frontend-service -n inspire
 |----------|---------|---------|-------------|
 | `IMAGE_SERVICE_URL` | frontend-service | `http://image-service:8081` | URL of image-service |
 | `PHRASE_SERVICE_URL` | frontend-service | `http://phrase-service:8082` | URL of phrase-service |
-| `SERVER_PORT` | all | `8080` | HTTP port |
-
----
-
-## Scaling
-
-### Manual Scaling
-
-```bash
-# Scale a deployment
-kubectl scale deployment image-service --replicas=3 -n inspire
-```
-
-### Auto-scaling (HPA)
-
-```yaml
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: image-service-hpa
-  namespace: inspire
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: image-service
-  minReplicas: 2
-  maxReplicas: 10
-  metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      target:
-        type: Utilization
-        averageUtilization: 70
-```
-
----
-
-## Monitoring
-
-### View Pod Logs
-
-```bash
-# Get pod name
-kubectl get pods -n inspire
-
-# Stream logs
-kubectl logs -f <pod-name> -n inspire
-```
-
-### Check Pod Status
-
-```bash
-kubectl describe pod <pod-name> -n inspire
-```
-
-### View Events
-
-```bash
-kubectl get events -n inspire --sort-by='.lastTimestamp'
-```
-
----
-
-## Troubleshooting
-
-### Image Pull Errors
-
-```bash
-# Check if ACR credentials are configured
-kubectl get secrets -n inspire
-
-# Create image pull secret if needed
-kubectl create secret docker-registry acr-secret \
-  --docker-server=<acr-login-server> \
-  --docker-username=<acr-username> \
-  --docker-password=<acr-password> \
-  -n inspire
-```
-
-### Service Connectivity
-
-```bash
-# Test DNS resolution
-kubectl run test --rm -it --image=busybox -- nslookup image-service.inspire.svc.cluster.local
-
-# Test service endpoint
-kubectl run test --rm -it --image=curlimages/curl -- curl http://image-service.inspire:8081/image
-```
-
----
-
-## Cost Optimization
-
-### Use Spot Instances for Dev/Test
-
-Add to ARM template parameters:
-
-```json
-{
-  "aksAgentPoolSpotInstances": {
-    "value": true
-  }
-}
-```
-
-### Scale Down Outside Business Hours
-
-```bash
-# Scale down AKS nodes
-az aks scale --resource-group rg-inspire-dev --name aks-inspire-dev --node-count 1
-```
-
----
-
-## Security Recommendations
-
-1. **Use Managed Identity** for AKS to access ACR (already configured)
-2. **Enable Azure Policy** for AKS
-3. **Use Azure Key Vault** for secrets management
-4. **Enable Azure Monitor** for logging and monitoring
-5. **Configure Network Policies** to restrict pod-to-pod communication
-6. **Use Private ACR** with Private Endpoints for production
-
----
-
-## Clean Up Resources
-
-```bash
-# Delete resource groups (removes all resources)
-az group delete --name rg-inspire-dev --yes --no-wait
-az group delete --name rg-inspire-test --yes --no-wait
-az group delete --name rg-inspire-prod --yes --no-wait
-```
+| `SERVER_PORT` | all services | `8080` | HTTP port |
 
 ---
 
@@ -455,12 +499,46 @@ az group delete --name rg-inspire-prod --yes --no-wait
 
 | Task | Command |
 |------|---------|
-| Get AKS credentials | `az aks get-credentials -g <rg> -n <aks>` |
-| Login to ACR | `az acr login --name <acr>` |
-| List ACR images | `az acr repository list --name <acr>` |
+| Get AKS credentials | `az aks get-credentials -g rg-inspire -n aks-inspire-shared` |
+| Login to ACR | `az acr login --name <acr-name>` |
+| List ACR images | `az acr repository list --name <acr-name>` |
 | View pods | `kubectl get pods -n inspire` |
 | View services | `kubectl get svc -n inspire` |
 | View deployments | `kubectl get deployments -n inspire` |
 | Stream logs | `kubectl logs -f <pod> -n inspire` |
+| Get external IP | `kubectl get svc frontend-service -n inspire` |
 | Describe resource | `kubectl describe <resource> <name> -n inspire` |
 | Delete all resources | `kubectl delete all --all -n inspire` |
+
+---
+
+## Cost Optimization
+
+### Scale Down AKS Nodes (Non-Production)
+
+```bash
+# Scale to 1 node for dev/test
+az aks scale --resource-group rg-inspire --name aks-inspire-shared --node-count 1
+```
+
+### Stop AKS Cluster
+
+```bash
+# Stop the cluster (saves compute costs)
+az aks stop --resource-group rg-inspire --name aks-inspire-shared
+
+# Start when needed
+az aks start --resource-group rg-inspire --name aks-inspire-shared
+```
+
+---
+
+## Security Recommendations
+
+1. **Use Managed Identity** - Already configured in ARM template for AKS to ACR access
+2. **Enable Azure Policy** for AKS compliance
+3. **Use Azure Key Vault** for secrets management
+4. **Enable Azure Monitor** for logging and monitoring
+5. **Configure Network Policies** to restrict pod-to-pod communication
+6. **Use Private ACR** with Private Endpoints for production
+7. **Enable Azure AD integration** for RBAC on AKS
