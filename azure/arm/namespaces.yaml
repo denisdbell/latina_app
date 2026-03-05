@@ -1,0 +1,131 @@
+---
+# inspire-dev namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: inspire-dev
+  labels:
+    app: inspire
+    environment: dev
+
+---
+# inspire-test namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: inspire-test
+  labels:
+    app: inspire
+    environment: test
+
+---
+# inspire-prod namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: inspire-prod
+  labels:
+    app: inspire
+    environment: prod
+
+---
+# NetworkPolicy: isolate each namespace so pods cannot
+# cross-communicate between environments.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-cross-namespace
+  namespace: inspire-dev
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inspire-dev
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-cross-namespace
+  namespace: inspire-test
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inspire-test
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-cross-namespace
+  namespace: inspire-prod
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inspire-prod
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+
+---
+# ResourceQuota: keep dev/test resource usage bounded on the shared node.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: inspire-quota
+  namespace: inspire-dev
+spec:
+  hard:
+    requests.cpu: "500m"
+    requests.memory: "512Mi"
+    limits.cpu: "1"
+    limits.memory: "1Gi"
+    pods: "10"
+
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: inspire-quota
+  namespace: inspire-test
+spec:
+  hard:
+    requests.cpu: "500m"
+    requests.memory: "512Mi"
+    limits.cpu: "1"
+    limits.memory: "1Gi"
+    pods: "10"
+
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: inspire-quota
+  namespace: inspire-prod
+spec:
+  hard:
+    requests.cpu: "1"
+    requests.memory: "1Gi"
+    limits.cpu: "2"
+    limits.memory: "2Gi"
+    pods: "20"
