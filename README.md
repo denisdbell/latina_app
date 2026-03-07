@@ -64,8 +64,7 @@ az group create --name rg-latina --location westus3
 ```bash
 az deployment group create \
   --resource-group rg-latina \
-  --template-file azure/arm/main.json \
-  --parameters azure/arm/main_parameters.json
+  --template-file main.json \
 ```
 
 > The `uniqueSuffix` parameter is set to `latina` in `main_parameters.json`. This gives you an ACR named `acrlatinalatina` (prefix `acrlatina` + suffix `latina`). Change the value in `main_parameters.json` if the name is already taken.
