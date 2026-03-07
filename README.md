@@ -1,174 +1,278 @@
-# Inspire App — Three-Tier Spring Boot · TDD · AKS
+# Azure Deployment Guide — Latina App
 
-A three-tier web application built with Spring Boot and Test-Driven Development, deployable to Azure Kubernetes Service.
+This guide covers deploying the **Latina App** to Azure Kubernetes Service (AKS) using the ARM template and Azure DevOps (ADO) pipelines.
+
+**Repositories:**
+- App source: https://github.com/denisdbell/latina_app
+- Pipeline templates: https://github.com/denisdbell/latina_app_template
+
+---
+
+## Architecture Overview
+
+A single shared AKS cluster with namespace-based environment separation (`dev`, `test`, `prod`). All three services are routed through a single public IP via an NGINX ingress:
 
 ```
-Browser → frontend-service (LoadBalancer)
-              ├── image-service  (ClusterIP)
-              └── phrase-service (ClusterIP)
+Internet
+    │
+    ▼
+AKS Ingress (nginx)
+    ├── /api/image  →  image-service:80
+    ├── /api/phrase →  phrase-service:80
+    └── /           →  frontend-service:80
+```
+
+### Resources deployed by the ARM template
+
+| Resource | Name |
+|----------|------|
+| Resource Group | `rg-latina` |
+| AKS Cluster | `aks-latina-shared` |
+| Container Registry | `acrlatina<uniqueSuffix>` |
+| Virtual Network | `vnet-latina` (10.0.0.0/16) |
+| Subnet | `snet-aks` (10.0.0.0/22) |
+| NSG | `nsg-latina` (allows HTTP/HTTPS inbound) |
+
+---
+
+## Prerequisites
+
+- Azure subscription with Owner or Contributor access
+- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) installed and logged in (`az login`)
+- [kubectl](https://kubernetes.io/docs/tasks/tools/) installed
+- Azure DevOps organisation with permissions to create pipelines and service connections
+
+---
+
+## Step 1 — Deploy Azure Infrastructure
+
+### 1.1 Clone the app repository
+
+```bash
+git clone https://github.com/denisdbell/latina_app.git
+cd latina_app
+```
+
+### 1.2 Create a resource group
+
+```bash
+az group create --name rg-latina --location westus3
+```
+
+### 1.3 Deploy the ARM template
+
+```bash
+az deployment group create \
+  --resource-group rg-latina \
+  --template-file azure/arm/main.json \
+  --parameters azure/arm/main_parameters.json
+```
+
+> The `uniqueSuffix` parameter is set to `latina` in `main_parameters.json`. This gives you an ACR named `acrlatinalatina` (prefix `acrlatina` + suffix `latina`). Change the value in `main_parameters.json` if the name is already taken.
+
+### 1.4 Note the deployment outputs
+
+```bash
+az deployment group show \
+  --resource-group rg-latina \
+  --name main \
+  --query properties.outputs
+```
+
+Keep a note of `acrLoginServer` and `aksName` — you will need them in later steps.
+
+### 1.5 Connect kubectl to the cluster
+
+```bash
+az aks get-credentials --resource-group rg-latina --name aks-latina-shared
+```
+
+### 1.6 Create Kubernetes namespaces
+
+```bash
+kubectl apply -f k8s/namespaces.yaml
+```
+
+This creates the `dev`, `test`, and `prod` namespaces with network isolation policies and resource quotas.
+
+### 1.7 Apply the ingress rules
+
+```bash
+kubectl apply -f k8s/ingress.yaml
 ```
 
 ---
 
-## Repository Structure
+## Step 2 — Configure Azure DevOps
 
-```
-inspire-app/
-├── pom.xml                          Parent Maven POM
-├── image-service/                   Returns a random image URL
-│   ├── Dockerfile
-│   ├── k8s/
-│   └── src/
-├── phrase-service/                  Returns a random phrase
-│   ├── Dockerfile
-│   ├── k8s/
-│   └── src/
-├── frontend-service/                Serves the UI + /api/config
-│   ├── Dockerfile
-│   ├── k8s/
-│   └── src/
-└── k8s/
-    └── namespace.yaml
-```
+### 2.1 Import the repositories
 
----
+In your Azure DevOps project, import both GitHub repos:
 
-## Running Tests
+1. **latina_app** — the main application (source of the pipeline YAML files)
+2. **latina_app_template** — the shared pipeline templates (referenced as `petclinic-pipeline-template` in the pipeline files)
 
-```bash
-# Run all tests across all three modules from the repo root
-mvn clean test
-```
+To import: **Repos → Import repository → GitHub → paste the URL**.
 
-Tests must pass before any build or deployment step.
+> The pipeline files reference the template repo as:
+> ```yaml
+> repository: templates
+> name: PetclinicMS/petclinic-pipeline-template
+> ref: master-microservice-aks
+> ```
+> Make sure the imported template repo is named accordingly in ADO, or update this reference in each pipeline file.
 
----
+### 2.2 Create service connections
 
-## Running Locally
+Go to **Project Settings → Service connections**.
 
-Each service runs on a different port to avoid conflicts.
+#### Kubernetes connection
 
-```bash
-# Terminal 1 — image-service on port 8081
-cd image-service
-mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=8081"
+| Setting | Value |
+|---------|-------|
+| Type | Kubernetes |
+| Name | `aks-service-connection` |
+| Authentication method | Azure Subscription |
+| Cluster | `aks-latina-shared` |
 
-# Terminal 2 — phrase-service on port 8082
-cd phrase-service
-mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=8082"
+#### Container Registry connection
 
-# Terminal 3 — frontend-service on port 8080
-cd frontend-service
-mvn spring-boot:run -Dspring-boot.run.arguments="--image.service.url=http://localhost:8081 --phrase.service.url=http://localhost:8082"
-```
+| Setting | Value |
+|---------|-------|
+| Type | Docker Registry → Azure Container Registry |
+| Name | `acr-service-connection` |
+| ACR | `acrlatinalatina` (or your suffix) |
 
-Open `http://localhost:8080` in your browser.
+> The pipeline files reference three separate ACR connections (`dev-acr-service-connection`, `test-acr-service-connection`, `prod-acr-service-connection`). For a single shared ACR, create one service connection and set all three variables to the same connection name, or create three connections pointing to the same ACR.
 
----
+### 2.3 Update the `uniqueSuffix` variable
 
-## Deploying to AKS
+In each pipeline file (`frontend-service.yml`, `image-service.yml`, `phrase-service.yml`), update the `uniqueSuffix` variable to match your ARM deployment:
 
-### Prerequisites
-
-- AKS cluster with `kubectl` connected (`az aks get-credentials --resource-group <rg> --name <cluster>`)
-- Azure Container Registry (ACR) with AcrPull granted to the AKS kubelet identity
-- Docker logged in to ACR (`az acr login --name <ACR_NAME>`)
-
-### 1. Build all JARs and run tests
-
-```bash
-mvn clean package
-```
-
-### 2. Build and push Docker images
-
-```bash
-# Set your ACR login server
-ACR=<your-acr-login-server>   # e.g. acrpetclinicdevoyyzir.azurecr.io
-
-# Build context is always the repo root so Stage 1 can see the parent pom.xml
-docker build -f image-service/Dockerfile    -t $ACR/image-service:latest    .
-docker build -f phrase-service/Dockerfile   -t $ACR/phrase-service:latest   .
-docker build -f frontend-service/Dockerfile -t $ACR/frontend-service:latest .
-
-docker push $ACR/image-service:latest
-docker push $ACR/phrase-service:latest
-docker push $ACR/frontend-service:latest
-
-
-docker build -f image-service/Dockerfile    -t denisdbell/image-service:latest    .
-docker build -f phrase-service/Dockerfile   -t denisdbell/phrase-service:latest   .
-docker build -f frontend-service/Dockerfile -t denisdbell/frontend-service:latest .
-
-docker push denisdbell/image-service:latest
-docker push denisdbell/phrase-service:latest
-docker push denisdbell/frontend-service:latest
-```
-
-### 3. Substitute ACR placeholder in manifests
-
-```bash
-sed -i "s|<ACR_LOGIN_SERVER>|$ACR|g" \
-  image-service/k8s/deployment.yaml \
-  phrase-service/k8s/deployment.yaml \
-  frontend-service/k8s/deployment.yaml
-```
-
-### 4. Apply to AKS
-
-```bash
-# Namespace first
-kubectl apply -f k8s/namespace.yaml
-
-# Then services before deployments so DNS names exist when pods start
-kubectl apply -f image-service/k8s/service.yaml
-kubectl apply -f image-service/k8s/deployment.yaml
-
-kubectl apply -f phrase-service/k8s/service.yaml
-kubectl apply -f phrase-service/k8s/deployment.yaml
-
-kubectl apply -f frontend-service/k8s/service.yaml
-kubectl apply -f frontend-service/k8s/deployment.yaml
-```
-
-### 5. Verify
-
-```bash
-# Watch pods become ready
-kubectl get pods -n inspire --watch
-
-# Get the public IP (may take 1-2 minutes to provision)
-kubectl get svc frontend-service -n inspire
-
-# Open http://<EXTERNAL-IP> in your browser
+```yaml
+variables:
+  uniqueSuffix: 'latina'   # ← must match your ARM deployment
 ```
 
 ---
 
-## Adding Images
+## Step 3 — Create the ADO Pipelines
 
-Place new `.jpg` or `.png` files in:
+For each of the three services, create a pipeline pointing to its YAML file:
 
-```
-image-service/src/main/resources/images/
-```
+1. **Pipelines → New pipeline**
+2. Source: **Azure Repos Git** → select `latina_app`
+3. **Existing Azure Pipelines YAML file**
+4. Select the file path:
 
-Rebuild and redeploy. No code changes required.
+| Service | Pipeline file |
+|---------|--------------|
+| Image Service | `azure/pipelines/image-service.yml` |
+| Phrase Service | `azure/pipelines/phrase-service.yml` |
+| Frontend Service | `azure/pipelines/frontend-service.yml` |
+
+5. Click **Save** (do not run yet).
 
 ---
 
-## Adding Phrases
+## Step 4 — Run the Pipelines
 
-Open `phrase-service/src/main/java/com/inspire/phrase/PhraseService.java` and add strings to the `PHRASES` list. Rebuild and redeploy.
+Run the pipelines in this order so backend services are available before the frontend deploys:
+
+1. `image-service`
+2. `phrase-service`
+3. `frontend-service`
+
+Each pipeline runs through the following stages automatically, with manual approval gates between environments:
+
+```
+Build → Deploy Dev → [Approve] → Deploy Test → [Approve] → Deploy Prod
+```
+
+To trigger: **Pipelines → select pipeline → Run pipeline → Run**.
 
 ---
 
-## Environment Variables
+## Step 5 — Access the Application
 
-| Variable | Service | Default | Description |
-|---|---|---|---|
-| `IMAGE_SERVICE_URL` | frontend-service | `http://localhost:8081` | URL of image-service |
-| `PHRASE_SERVICE_URL` | frontend-service | `http://localhost:8082` | URL of phrase-service |
-| `SERVER_PORT` | any | `8080` | Override the HTTP port |
+After the frontend pipeline completes, get the ingress public IP:
 
-In Kubernetes these are set in each Deployment manifest and map automatically to `application.properties` via Spring Boot relaxed binding.
+```bash
+kubectl get ingress latina-ingress -n latina
+```
+
+| Path | Service |
+|------|---------|
+| `http://<EXTERNAL-IP>/` | Frontend UI |
+| `http://<EXTERNAL-IP>/api/image` | Image Service API |
+| `http://<EXTERNAL-IP>/api/phrase` | Phrase Service API |
+
+---
+
+## Verify the Deployment
+
+```bash
+# Check all pods are running
+kubectl get pods -n dev
+
+# Check services
+kubectl get svc -n dev
+
+# Check ingress
+kubectl get ingress -n latina
+
+# Stream logs for a service
+kubectl logs -f <pod-name> -n dev
+```
+
+---
+
+## Troubleshooting
+
+### Image pull errors
+```bash
+# Verify AKS has AcrPull access (already set by ARM template, but check if broken)
+AKS_IDENTITY=$(az aks show -g rg-latina -n aks-latina-shared \
+  --query identityProfile.kubeletidentity.objectId -o tsv)
+ACR_ID=$(az acr show --name acrlatinalatina --query id -o tsv)
+az role assignment create --assignee $AKS_IDENTITY --role AcrPull --scope $ACR_ID
+```
+
+### Pod not starting
+```bash
+kubectl describe pod <pod-name> -n dev
+kubectl get events -n dev --sort-by='.lastTimestamp'
+```
+
+### Ingress not routing correctly
+```bash
+# Confirm the web app routing addon is enabled
+az aks show -g rg-latina -n aks-latina-shared \
+  --query addonProfiles.webAppRouting.enabled
+```
+
+---
+
+## Clean Up
+
+```bash
+# Remove all app resources
+kubectl delete all --all -n dev
+kubectl delete all --all -n test
+kubectl delete all --all -n prod
+
+# Remove Azure infrastructure entirely
+az group delete --name rg-latina --yes --no-wait
+```
+
+---
+
+## Cost Tips
+
+```bash
+# Stop the cluster when not in use (saves compute costs)
+az aks stop --resource-group rg-latina --name aks-latina-shared
+
+# Restart when needed
+az aks start --resource-group rg-latina --name aks-latina-shared
+```
