@@ -15,8 +15,8 @@ resources:
   repositories:
     - repository: templates
       type: git
-      name: PetclinicMS/petclinic-pipeline-template
-      ref: master-microservice-aks
+      name: <your-project>/latina_app_template
+      ref: main
 
 variables:
   # AKS and Common Variables
