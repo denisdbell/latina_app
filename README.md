@@ -97,7 +97,7 @@ This creates the `dev`, `test`, and `prod` namespaces with network isolation pol
 ### 1.7 Apply the ingress rules
 
 ```bash
-kubectl apply -f k8s/ingress.yaml
+kubectl apply -f ingress.yaml
 ```
 
 ---
