@@ -5,28 +5,28 @@
     "location": {
       "type": "string",
       "defaultValue": "westus3",
-      "metadata": {
-        "description": "Azure region for all resources."
-      }
+      "metadata": { "description": "Azure region for all resources." }
     },
     "uniqueSuffix": {
       "type": "string",
-      "maxLength": 8,
-      "defaultValue": "[take(uniqueString(subscription().subscriptionId, resourceGroup().name), 8)]",
-      "metadata": {
-        "description": "Short unique suffix for globally-unique resource names (ACR, Log Analytics). Auto-generated from subscription+resource group if not overridden."
-      }
+      "defaultValue": "[substring(uniqueString(resourceGroup().id), 0, 8)]",
+      "metadata": { "description": "Auto-generated unique suffix for globally-unique resource names." }
     }
   },
   "variables": {
-    "acrName": "[concat('acrlatina', parameters('uniqueSuffix'))]",
-    "aksName": "aks-latina-shared",
-    "vnetName": "vnet-latina",
+    "devAcrName": "[concat('acrinspiredev', parameters('uniqueSuffix'))]",
+    "testAcrName": "[concat('acrinspiretest', parameters('uniqueSuffix'))]",
+    "prodAcrName": "[concat('acrinspireprod', parameters('uniqueSuffix'))]",
+    "aksName": "aks-inspire-shared",
+    "vnetName": "vnet-inspire",
     "subnetAksName": "snet-aks",
-    "nsgName": "nsg-latina",
+    "nsgName": "nsg-inspire",
     "vnetAddressPrefix": "10.0.0.0/16",
     "aksSubnetPrefix": "10.0.0.0/22",
-    "acrPullRoleId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')]"
+    "acrPullRoleId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')]",
+    "contributorRoleId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
+    "deploymentScriptIdentityName": "[concat('id-inspire-deploy-', parameters('uniqueSuffix'))]",
+    "ingressManifest": "[concat('apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: inspire-ingress\n  namespace: inspire\n  annotations:\n    nginx.ingress.kubernetes.io/use-regex: \"true\"\n    nginx.ingress.kubernetes.io/rewrite-target: /$2\n    nginx.ingress.kubernetes.io/enable-cors: \"true\"\n    nginx.ingress.kubernetes.io/cors-allow-origin: \"*\"\nspec:\n  ingressClassName: webapprouting.kubernetes.azure.com\n  rules:\n  - http:\n      paths:\n      - path: /api/image(/|$)(.*)\n        pathType: Prefix\n        backend:\n          service:\n            name: image-service\n            port:\n              number: 80\n      - path: /api/phrase(/|$)(.*)\n        pathType: Prefix\n        backend:\n          service:\n            name: phrase-service\n            port:\n              number: 80\n      - path: /()(.*)\n        pathType: Prefix\n        backend:\n          service:\n            name: frontend-service\n            port:\n              number: 80\n')]"
   },
   "resources": [
     {
@@ -34,48 +34,31 @@
       "apiVersion": "2023-05-01",
       "name": "[variables('nsgName')]",
       "location": "[parameters('location')]",
-      "tags": {
-        "application": "latina"
-      },
+      "tags": { "application": "inspire" },
       "properties": {
         "securityRules": [
           {
             "name": "Allow-HTTP-Inbound",
             "properties": {
-              "priority": 100,
-              "protocol": "Tcp",
-              "access": "Allow",
-              "direction": "Inbound",
-              "sourceAddressPrefix": "Internet",
-              "sourcePortRange": "*",
-              "destinationAddressPrefix": "*",
-              "destinationPortRange": "80"
+              "priority": 100, "protocol": "Tcp", "access": "Allow", "direction": "Inbound",
+              "sourceAddressPrefix": "Internet", "sourcePortRange": "*",
+              "destinationAddressPrefix": "*", "destinationPortRange": "80"
             }
           },
           {
             "name": "Allow-HTTPS-Inbound",
             "properties": {
-              "priority": 110,
-              "protocol": "Tcp",
-              "access": "Allow",
-              "direction": "Inbound",
-              "sourceAddressPrefix": "Internet",
-              "sourcePortRange": "*",
-              "destinationAddressPrefix": "*",
-              "destinationPortRange": "443"
+              "priority": 110, "protocol": "Tcp", "access": "Allow", "direction": "Inbound",
+              "sourceAddressPrefix": "Internet", "sourcePortRange": "*",
+              "destinationAddressPrefix": "*", "destinationPortRange": "443"
             }
           },
           {
             "name": "Allow-AzureLoadBalancer",
             "properties": {
-              "priority": 120,
-              "protocol": "*",
-              "access": "Allow",
-              "direction": "Inbound",
-              "sourceAddressPrefix": "AzureLoadBalancer",
-              "sourcePortRange": "*",
-              "destinationAddressPrefix": "*",
-              "destinationPortRange": "*"
+              "priority": 120, "protocol": "*", "access": "Allow", "direction": "Inbound",
+              "sourceAddressPrefix": "AzureLoadBalancer", "sourcePortRange": "*",
+              "destinationAddressPrefix": "*", "destinationPortRange": "*"
             }
           }
         ]
@@ -86,18 +69,12 @@
       "apiVersion": "2023-05-01",
       "name": "[variables('vnetName')]",
       "location": "[parameters('location')]",
-      "tags": {
-        "application": "latina"
-      },
+      "tags": { "application": "inspire" },
       "dependsOn": [
         "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]"
       ],
       "properties": {
-        "addressSpace": {
-          "addressPrefixes": [
-            "[variables('vnetAddressPrefix')]"
-          ]
-        },
+        "addressSpace": { "addressPrefixes": [ "[variables('vnetAddressPrefix')]" ] },
         "subnets": [
           {
             "name": "[variables('subnetAksName')]",
@@ -114,40 +91,43 @@
     {
       "type": "Microsoft.ContainerRegistry/registries",
       "apiVersion": "2023-07-01",
-      "name": "[variables('acrName')]",
+      "name": "[variables('devAcrName')]",
       "location": "[parameters('location')]",
-      "tags": {
-        "application": "latina"
-      },
-      "sku": {
-        "name": "Basic"
-      },
-      "properties": {
-        "adminUserEnabled": false,
-        "anonymousPullEnabled": false,
-        "publicNetworkAccess": "Enabled"
-      }
+      "tags": { "application": "inspire", "environment": "dev" },
+      "sku": { "name": "Basic" },
+      "properties": { "adminUserEnabled": false, "anonymousPullEnabled": false, "publicNetworkAccess": "Enabled" }
+    },
+    {
+      "type": "Microsoft.ContainerRegistry/registries",
+      "apiVersion": "2023-07-01",
+      "name": "[variables('testAcrName')]",
+      "location": "[parameters('location')]",
+      "tags": { "application": "inspire", "environment": "test" },
+      "sku": { "name": "Basic" },
+      "properties": { "adminUserEnabled": false, "anonymousPullEnabled": false, "publicNetworkAccess": "Enabled" }
+    },
+    {
+      "type": "Microsoft.ContainerRegistry/registries",
+      "apiVersion": "2023-07-01",
+      "name": "[variables('prodAcrName')]",
+      "location": "[parameters('location')]",
+      "tags": { "application": "inspire", "environment": "prod" },
+      "sku": { "name": "Basic" },
+      "properties": { "adminUserEnabled": false, "anonymousPullEnabled": false, "publicNetworkAccess": "Enabled" }
     },
     {
       "type": "Microsoft.ContainerService/managedClusters",
       "apiVersion": "2024-01-01",
       "name": "[variables('aksName')]",
       "location": "[parameters('location')]",
-      "tags": {
-        "application": "latina"
-      },
+      "tags": { "application": "inspire" },
       "dependsOn": [
         "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
       ],
-      "sku": {
-        "name": "Base",
-        "tier": "Free"
-      },
-      "identity": {
-        "type": "SystemAssigned"
-      },
+      "sku": { "name": "Base", "tier": "Free" },
+      "identity": { "type": "SystemAssigned" },
       "properties": {
-        "dnsPrefix": "aks-latina-shared",
+        "dnsPrefix": "aks-inspire-shared",
         "enableRBAC": true,
         "agentPoolProfiles": [
           {
@@ -160,9 +140,7 @@
             "mode": "System",
             "vnetSubnetID": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetAksName'))]",
             "enableAutoScaling": false,
-            "upgradeSettings": {
-              "maxSurge": "1"
-            }
+            "upgradeSettings": { "maxSurge": "1" }
           }
         ],
         "networkProfile": {
@@ -172,52 +150,120 @@
           "serviceCidr": "10.1.0.0/16",
           "dnsServiceIP": "10.1.0.10"
         },
-        "autoUpgradeProfile": {
-          "upgradeChannel": "patch"
+        "autoUpgradeProfile": { "upgradeChannel": "patch" },
+        "ingressProfile": {
+          "webAppRouting": { "enabled": true }
         }
       }
     },
     {
-      "comments": "AcrPull for the AKS system identity (control plane operations)",
       "type": "Microsoft.Authorization/roleAssignments",
       "apiVersion": "2022-04-01",
-      "name": "[guid(resourceId('Microsoft.ContainerRegistry/registries', variables('acrName')), variables('aksName'), 'AcrPull-system')]",
-      "scope": "[resourceId('Microsoft.ContainerRegistry/registries', variables('acrName'))]",
+      "name": "[guid(resourceId('Microsoft.ContainerRegistry/registries', variables('devAcrName')), variables('aksName'), 'AcrPull')]",
+      "scope": "[resourceId('Microsoft.ContainerRegistry/registries', variables('devAcrName'))]",
       "dependsOn": [
         "[resourceId('Microsoft.ContainerService/managedClusters', variables('aksName'))]",
-        "[resourceId('Microsoft.ContainerRegistry/registries', variables('acrName'))]"
+        "[resourceId('Microsoft.ContainerRegistry/registries', variables('devAcrName'))]"
       ],
       "properties": {
         "roleDefinitionId": "[variables('acrPullRoleId')]",
-        "principalId": "[reference(resourceId('Microsoft.ContainerService/managedClusters', variables('aksName')), '2024-01-01', 'Full').identity.principalId]",
+        "principalId": "[reference(resourceId('Microsoft.ContainerService/managedClusters', variables('aksName')), '2024-01-01').identityProfile.kubeletidentity.objectId]",
         "principalType": "ServicePrincipal"
       }
     },
     {
-      "comments": "AcrPull for the AKS kubelet identity — this is what actually pulls images onto nodes",
       "type": "Microsoft.Authorization/roleAssignments",
       "apiVersion": "2022-04-01",
-      "name": "[guid(resourceId('Microsoft.ContainerRegistry/registries', variables('acrName')), variables('aksName'), 'AcrPull-kubelet')]",
-      "scope": "[resourceId('Microsoft.ContainerRegistry/registries', variables('acrName'))]",
+      "name": "[guid(resourceId('Microsoft.ContainerRegistry/registries', variables('testAcrName')), variables('aksName'), 'AcrPull')]",
+      "scope": "[resourceId('Microsoft.ContainerRegistry/registries', variables('testAcrName'))]",
       "dependsOn": [
         "[resourceId('Microsoft.ContainerService/managedClusters', variables('aksName'))]",
-        "[resourceId('Microsoft.ContainerRegistry/registries', variables('acrName'))]"
+        "[resourceId('Microsoft.ContainerRegistry/registries', variables('testAcrName'))]"
       ],
       "properties": {
         "roleDefinitionId": "[variables('acrPullRoleId')]",
-        "principalId": "[reference(resourceId('Microsoft.ContainerService/managedClusters', variables('aksName')), '2024-01-01', 'Full').properties.identityProfile.kubeletidentity.objectId]",
+        "principalId": "[reference(resourceId('Microsoft.ContainerService/managedClusters', variables('aksName')), '2024-01-01').identityProfile.kubeletidentity.objectId]",
         "principalType": "ServicePrincipal"
+      }
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(resourceId('Microsoft.ContainerRegistry/registries', variables('prodAcrName')), variables('aksName'), 'AcrPull')]",
+      "scope": "[resourceId('Microsoft.ContainerRegistry/registries', variables('prodAcrName'))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.ContainerService/managedClusters', variables('aksName'))]",
+        "[resourceId('Microsoft.ContainerRegistry/registries', variables('prodAcrName'))]"
+      ],
+      "properties": {
+        "roleDefinitionId": "[variables('acrPullRoleId')]",
+        "principalId": "[reference(resourceId('Microsoft.ContainerService/managedClusters', variables('aksName')), '2024-01-01').identityProfile.kubeletidentity.objectId]",
+        "principalType": "ServicePrincipal"
+      }
+    },
+    {
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "apiVersion": "2023-01-31",
+      "name": "[variables('deploymentScriptIdentityName')]",
+      "location": "[parameters('location')]",
+      "tags": { "application": "inspire" }
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(resourceGroup().id, variables('deploymentScriptIdentityName'), 'Contributor')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('deploymentScriptIdentityName'))]"
+      ],
+      "properties": {
+        "roleDefinitionId": "[variables('contributorRoleId')]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('deploymentScriptIdentityName'))).principalId]",
+        "principalType": "ServicePrincipal"
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deploymentScripts",
+      "apiVersion": "2023-08-01",
+      "name": "apply-inspire-ingress",
+      "location": "[parameters('location')]",
+      "tags": { "application": "inspire" },
+      "kind": "AzureCLI",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('deploymentScriptIdentityName'))]": {}
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ContainerService/managedClusters', variables('aksName'))]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('deploymentScriptIdentityName'))]",
+        "[guid(resourceGroup().id, variables('deploymentScriptIdentityName'), 'Contributor')]"
+      ],
+      "properties": {
+        "azCliVersion": "2.60.0",
+        "timeout": "PT10M",
+        "retentionInterval": "PT1H",
+        "cleanupPreference": "OnSuccess",
+        "scriptContent": "[concat('set -e\naz aks get-credentials --resource-group ', resourceGroup().name, ' --name ', variables('aksName'), ' --overwrite-existing\nkubectl create namespace inspire --dry-run=client -o yaml | kubectl apply -f -\ncat <<EOF | kubectl apply -f -\n', variables('ingressManifest'), 'EOF\n')]"
       }
     }
   ],
   "outputs": {
-    "acrLoginServer": {
+    "uniqueSuffix": {
       "type": "string",
-      "value": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('acrName'))).loginServer]"
+      "value": "[parameters('uniqueSuffix')]"
     },
-    "acrName": {
+    "devAcrLoginServer": {
       "type": "string",
-      "value": "[variables('acrName')]"
+      "value": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('devAcrName'))).loginServer]"
+    },
+    "testAcrLoginServer": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('testAcrName'))).loginServer]"
+    },
+    "prodAcrLoginServer": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('prodAcrName'))).loginServer]"
     },
     "aksName": {
       "type": "string",
@@ -225,7 +271,11 @@
     },
     "postDeploySteps": {
       "type": "string",
-      "value": "[concat('az aks get-credentials --resource-group ', resourceGroup().name, ' --name aks-latina-shared && kubectl apply -f k8s/namespaces.yaml')]"
+      "value": "[concat('az aks get-credentials --resource-group ', resourceGroup().name, ' --name aks-inspire-shared && kubectl apply -f k8s/namespaces.yaml')]"
+    },
+    "pipelineVariables": {
+      "type": "string",
+      "value": "[concat('uniqueSuffix: ', parameters('uniqueSuffix'))]"
     }
   }
 }
