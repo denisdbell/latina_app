@@ -27,17 +27,17 @@ variables:
   uniqueSuffix: 'zedphpot'
 
   # Dev Environment
-  devAcrConnection: 'dev-acr-service-connection-2'
-  devAcrLoginServer: 'acrinspiredev$(uniqueSuffix).azurecr.io'
+  devAcrConnection: 'acr-service-connection'
+  devAcrLoginServer: 'acrlatina$(uniqueSuffix).azurecr.io'
 
   # Testing Environment
-  testAcrConnection: 'test-acr-service-connection-2'
-  testAcrLoginServer: 'acrinspiretest$(uniqueSuffix).azurecr.io'
+  testAcrConnection: 'acr-service-connection'
+  testAcrLoginServer: 'acrlatina$(uniqueSuffix).azurecr.io'
 
   # Prod Environment
-  prodAcrConnection: 'prod-acr-service-connection-2'
-  prodAcrLoginServer: 'acrinspireprod$(uniqueSuffix).azurecr.io'
-
+  prodAcrConnection: 'acr-service-connection'
+  prodAcrLoginServer: 'acrlatina$(uniqueSuffix).azurecr.io'
+  
 stages:
 - stage: Build
   displayName: 'Build Image Service'
