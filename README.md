@@ -87,9 +87,9 @@ az aks get-credentials --resource-group rg-latina --name aks-latina-shared
 ### 1.6 Create Kubernetes namespaces
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/denisdbell/latina_app/refs/heads/main/azure/arm/namespaces.yaml -o main.json
+curl -fsSL https://raw.githubusercontent.com/denisdbell/latina_app/refs/heads/main/azure/arm/namespaces.yaml -o namespaces.yaml
 
-kubectl apply -f k8s/namespaces.yaml
+kubectl apply -f namespaces.yaml
 ```
 
 This creates the `dev`, `test`, and `prod` namespaces with network isolation policies and resource quotas.
