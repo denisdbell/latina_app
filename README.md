@@ -64,10 +64,8 @@ az group create --name rg-latina --location westus3
 ```bash
 az deployment group create \
   --resource-group rg-latina \
-  --template-file main.json \
+  --template-file main.json 
 ```
-
-> The `uniqueSuffix` parameter is set to `latina` in `main_parameters.json`. This gives you an ACR named `acrlatinalatina` (prefix `acrlatina` + suffix `latina`). Change the value in `main_parameters.json` if the name is already taken.
 
 ### 1.4 Note the deployment outputs
 
@@ -89,6 +87,8 @@ az aks get-credentials --resource-group rg-latina --name aks-latina-shared
 ### 1.6 Create Kubernetes namespaces
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/denisdbell/latina_app/refs/heads/main/azure/arm/namespaces.yaml -o main.json
+
 kubectl apply -f k8s/namespaces.yaml
 ```
 
