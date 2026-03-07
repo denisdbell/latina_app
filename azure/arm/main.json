@@ -244,8 +244,7 @@
         "timeout": "PT10M",
         "retentionInterval": "PT1H",
         "cleanupPreference": "OnSuccess",
-        "scriptContent": "[concat('set -e\naz aks get-credentials --resource-group ', resourceGroup().name, ' --name ', variables('aksName'), ' --overwrite-existing\nkubectl create namespace inspire --dry-run=client -o yaml | kubectl apply -f -\ncat <<EOF | kubectl apply -f -\n', variables('ingressManifest'), 'EOF\n')]"
-      }
+        "scriptContent": "[concat('set -e\naz aks install-cli --only-show-errors\naz aks get-credentials --resource-group ', resourceGroup().name, ' --name ', variables('aksName'), ' --overwrite-existing\nkubectl create namespace inspire --dry-run=client -o yaml | kubectl apply -f -\ncat <<EOF | kubectl apply -f -\n', variables('ingressManifest'), 'EOF\n')]"      }
     }
   ],
   "outputs": {
