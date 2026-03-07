@@ -19,11 +19,11 @@
     }
   },
   "variables": {
-    "acrName": "[concat('acrinspire', parameters('uniqueSuffix'))]",
-    "aksName": "aks-inspire-shared",
-    "vnetName": "vnet-inspire",
+    "acrName": "[concat('acrlatina', parameters('uniqueSuffix'))]",
+    "aksName": "aks-latina-shared",
+    "vnetName": "vnet-latina",
     "subnetAksName": "snet-aks",
-    "nsgName": "nsg-inspire",
+    "nsgName": "nsg-latina",
     "vnetAddressPrefix": "10.0.0.0/16",
     "aksSubnetPrefix": "10.0.0.0/22",
     "acrPullRoleId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')]"
@@ -35,7 +35,7 @@
       "name": "[variables('nsgName')]",
       "location": "[parameters('location')]",
       "tags": {
-        "application": "inspire"
+        "application": "latina"
       },
       "properties": {
         "securityRules": [
@@ -87,7 +87,7 @@
       "name": "[variables('vnetName')]",
       "location": "[parameters('location')]",
       "tags": {
-        "application": "inspire"
+        "application": "latina"
       },
       "dependsOn": [
         "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]"
@@ -117,7 +117,7 @@
       "name": "[variables('acrName')]",
       "location": "[parameters('location')]",
       "tags": {
-        "application": "inspire"
+        "application": "latina"
       },
       "sku": {
         "name": "Basic"
@@ -134,7 +134,7 @@
       "name": "[variables('aksName')]",
       "location": "[parameters('location')]",
       "tags": {
-        "application": "inspire"
+        "application": "latina"
       },
       "dependsOn": [
         "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
@@ -147,7 +147,7 @@
         "type": "SystemAssigned"
       },
       "properties": {
-        "dnsPrefix": "aks-inspire-shared",
+        "dnsPrefix": "aks-latina-shared",
         "enableRBAC": true,
         "agentPoolProfiles": [
           {
@@ -208,7 +208,7 @@
     },
     "postDeploySteps": {
       "type": "string",
-      "value": "[concat('az aks get-credentials --resource-group ', resourceGroup().name, ' --name aks-inspire-shared && kubectl apply -f k8s/namespaces.yaml')]"
+      "value": "[concat('az aks get-credentials --resource-group ', resourceGroup().name, ' --name aks-latina-shared && kubectl apply -f k8s/namespaces.yaml')]"
     }
   }
 }
