@@ -1,5 +1,5 @@
 # ============================================================
-# Ingress rules for the inspire namespace
+# Ingress rules for the namespace
 # Requires: AKS Web App Routing addon (enabled in main.json)
 # Routes all API traffic through a single public IP, so the
 # frontend can use relative paths instead of internal k8s names.
