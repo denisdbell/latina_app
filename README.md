@@ -98,7 +98,7 @@ This creates the `dev`, `test`, and `prod` namespaces with network isolation pol
 
 ```bash
 
-curl -fsSL https://raw.githubusercontent.com/denisdbell/latina_app/refs/heads/main/azure/arm/ingress.yaml -o namespaces.yaml
+curl -fsSL https://raw.githubusercontent.com/denisdbell/latina_app/refs/heads/main/azure/arm/ingress.yaml -o ingress.yaml
 
 kubectl apply -f ingress.yaml
 ```
