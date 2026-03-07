@@ -27,12 +27,12 @@ variables:
   uniqueSuffix: 'zedphpot'
 
   # Service URLs (update these based on your environment)
-  devImageUrl: 'http://image-service.inspire.svc.cluster.local:8081'
-  devPhraseUrl: 'http://phrase-service.inspire.svc.cluster.local:8082'
-  testImageUrl: 'http://image-service.inspire-testing.svc.cluster.local:8081'
-  testPhraseUrl: 'http://phrase-service.inspire-testing.svc.cluster.local:8082'
-  prodImageUrl: 'http://image-service.inspire-prod.svc.cluster.local:8081'
-  prodPhraseUrl: 'http://phrase-service.inspire-prod.svc.cluster.local:8082'
+  devImageUrl: 'http://image-service.dev.svc.cluster.local:8081'
+  devPhraseUrl: 'http://phrase-service.dev.svc.cluster.local:8082'
+  testImageUrl: 'http://image-service.test.svc.cluster.local:8081'
+  testPhraseUrl: 'http://phrase-service.test.svc.cluster.local:8082'
+  prodImageUrl: 'http://image-service.prod.svc.cluster.local:8081'
+  prodPhraseUrl: 'http://phrase-service.prod.svc.cluster.local:8082'
 
   # Dev Environment
   devAcrConnection: 'acr-service-connection'
@@ -98,7 +98,7 @@ stages:
   - template: deploy.yaml@templates
     parameters:
       environmentName: 'testing'
-      namespace: 'inspire-testing'
+      namespace: 'test'
       aksServiceConnection: '$(aksServiceConnection)'
       promoteImage: true
       sourceAcrConnection: '$(devAcrConnection)'
@@ -132,7 +132,7 @@ stages:
   - template: deploy.yaml@templates
     parameters:
       environmentName: 'prod'
-      namespace: 'inspire-prod'
+      namespace: 'prod'
       aksServiceConnection: '$(aksServiceConnection)'
       promoteImage: true
       sourceAcrConnection: '$(testAcrConnection)'
