@@ -1,31 +1,31 @@
 ---
-# inspire-dev namespace
+# dev namespace
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: inspire-dev
+  name: dev
   labels:
-    app: inspire
+    app: latina
     environment: dev
 
 ---
-# inspire-test namespace
+# test namespace
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: inspire-test
+  name: test
   labels:
-    app: inspire
+    app: latina
     environment: test
 
 ---
-# inspire-prod namespace
+# prod namespace
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: inspire-prod
+  name: prod
   labels:
-    app: inspire
+    app: latina
     environment: prod
 
 ---
@@ -35,7 +35,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: deny-cross-namespace
-  namespace: inspire-dev
+  namespace: dev
 spec:
   podSelector: {}
   policyTypes:
@@ -44,7 +44,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: inspire-dev
+              kubernetes.io/metadata.name: dev
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: ingress-nginx
@@ -54,7 +54,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: deny-cross-namespace
-  namespace: inspire-test
+  namespace: test
 spec:
   podSelector: {}
   policyTypes:
@@ -63,7 +63,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: inspire-test
+              kubernetes.io/metadata.name: test
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: ingress-nginx
@@ -73,7 +73,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: deny-cross-namespace
-  namespace: inspire-prod
+  namespace: prod
 spec:
   podSelector: {}
   policyTypes:
@@ -82,7 +82,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: inspire-prod
+              kubernetes.io/metadata.name: prod
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: ingress-nginx
@@ -92,8 +92,8 @@ spec:
 apiVersion: v1
 kind: ResourceQuota
 metadata:
-  name: inspire-quota
-  namespace: inspire-dev
+  name: latina-quota
+  namespace: dev
 spec:
   hard:
     requests.cpu: "500m"
@@ -106,8 +106,8 @@ spec:
 apiVersion: v1
 kind: ResourceQuota
 metadata:
-  name: inspire-quota
-  namespace: inspire-test
+  name: latina-quota
+  namespace: test
 spec:
   hard:
     requests.cpu: "500m"
@@ -120,8 +120,8 @@ spec:
 apiVersion: v1
 kind: ResourceQuota
 metadata:
-  name: inspire-quota
-  namespace: inspire-prod
+  name: latina-quota
+  namespace: prod
 spec:
   hard:
     requests.cpu: "1"
