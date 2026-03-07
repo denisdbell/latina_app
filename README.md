@@ -46,11 +46,11 @@ AKS Ingress (nginx)
 
 ## Step 1 — Deploy Azure Infrastructure
 
-### 1.1 Clone the app repository
+### 1.1 Dowload the main.json
 
 ```bash
-git clone https://github.com/denisdbell/latina_app.git
-cd latina_app
+curl -fsSL https://raw.githubusercontent.com/denisdbell/latina_app/refs/heads/main/azure/arm/main.json -o main.json
+
 ```
 
 ### 1.2 Create a resource group
