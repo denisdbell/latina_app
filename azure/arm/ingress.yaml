@@ -9,7 +9,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: latina-ingress
-  namespace: inspire
+  namespace: dev
   annotations:
     # Allow the frontend to call APIs without CORS issues
     nginx.ingress.kubernetes.io/enable-cors: "true"
