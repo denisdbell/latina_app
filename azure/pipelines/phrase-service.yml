@@ -58,7 +58,7 @@ stages:
   - template: deploy.yaml@templates
     parameters:
       environmentName: 'dev'
-      namespace: 'inspire'
+      namespace: 'dev'
       aksServiceConnection: '$(aksServiceConnection)'
       promoteImage: false
       targetAcrConnection: '$(devAcrConnection)'
@@ -87,8 +87,8 @@ stages:
   jobs:
   - template: deploy.yaml@templates
     parameters:
-      environmentName: 'testing'
-      namespace: 'inspire-testing'
+      environmentName: 'test'
+      namespace: 'test'
       aksServiceConnection: '$(aksServiceConnection)'
       promoteImage: true
       sourceAcrConnection: '$(devAcrConnection)'
@@ -120,7 +120,7 @@ stages:
   - template: deploy.yaml@templates
     parameters:
       environmentName: 'prod'
-      namespace: 'inspire-prod'
+      namespace: 'prod'
       aksServiceConnection: '$(aksServiceConnection)'
       promoteImage: true
       sourceAcrConnection: '$(testAcrConnection)'
