@@ -58,7 +58,7 @@ stages:
   - template: deploy.yaml@templates
     parameters:
       environmentName: 'dev'
-      namespace: 'inspire'
+      namespace: 'dev'
       aksServiceConnection: '$(aksServiceConnection)'
       promoteImage: false
       targetAcrConnection: '$(devAcrConnection)'
