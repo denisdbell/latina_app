@@ -119,8 +119,8 @@ To import: **Repos → Import repository → GitHub → paste the URL**.
 > The pipeline files reference the template repo as:
 > ```yaml
 > repository: templates
-> name: PetclinicMS/petclinic-pipeline-template
-> ref: master-microservice-aks
+> name: <project name>/latinac_app_template
+> ref: main
 > ```
 > Make sure the imported template repo is named accordingly in ADO, or update this reference in each pipeline file.
 
