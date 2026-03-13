@@ -23,10 +23,7 @@
     "nsgName": "nsg-latina",
     "vnetAddressPrefix": "10.0.0.0/16",
     "aksSubnetPrefix": "10.0.0.0/22",
-    "acrPullRoleId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')]",
-    "contributorRoleId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
-    "deploymentScriptIdentityName": "[concat('id-latina-deploy-', parameters('uniqueSuffix'))]",
-    "ingressManifest": "[concat('apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: latina-ingress\n  namespace: latina\n  annotations:\n    nginx.ingress.kubernetes.io/use-regex: \"true\"\n    nginx.ingress.kubernetes.io/rewrite-target: /$2\n    nginx.ingress.kubernetes.io/enable-cors: \"true\"\n    nginx.ingress.kubernetes.io/cors-allow-origin: \"*\"\nspec:\n  ingressClassName: webapprouting.kubernetes.azure.com\n  rules:\n  - http:\n      paths:\n      - path: /api/image(/|$)(.*)\n        pathType: Prefix\n        backend:\n          service:\n            name: image-service\n            port:\n              number: 80\n      - path: /api/phrase(/|$)(.*)\n        pathType: Prefix\n        backend:\n          service:\n            name: phrase-service\n            port:\n              number: 80\n      - path: /()(.*)\n        pathType: Prefix\n        backend:\n          service:\n            name: frontend-service\n            port:\n              number: 80\n')]"
+    "acrPullRoleId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')]"
   },
   "resources": [
     {
@@ -132,7 +129,7 @@
         "agentPoolProfiles": [
           {
             "name": "system",
-            "count": 1,
+            "count": 2,
             "vmSize": "Standard_D2s_v3",
             "osType": "Linux",
             "osDiskSizeGB": 30,
@@ -200,51 +197,6 @@
         "principalId": "[reference(resourceId('Microsoft.ContainerService/managedClusters', variables('aksName')), '2024-01-01').identityProfile.kubeletidentity.objectId]",
         "principalType": "ServicePrincipal"
       }
-    },
-    {
-      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
-      "apiVersion": "2023-01-31",
-      "name": "[variables('deploymentScriptIdentityName')]",
-      "location": "[parameters('location')]",
-      "tags": { "application": "latina" }
-    },
-    {
-      "type": "Microsoft.Authorization/roleAssignments",
-      "apiVersion": "2022-04-01",
-      "name": "[guid(resourceGroup().id, variables('deploymentScriptIdentityName'), 'Contributor')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('deploymentScriptIdentityName'))]"
-      ],
-      "properties": {
-        "roleDefinitionId": "[variables('contributorRoleId')]",
-        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('deploymentScriptIdentityName'))).principalId]",
-        "principalType": "ServicePrincipal"
-      }
-    },
-    {
-      "type": "Microsoft.Resources/deploymentScripts",
-      "apiVersion": "2023-08-01",
-      "name": "apply-latina-ingress",
-      "location": "[parameters('location')]",
-      "tags": { "application": "latina" },
-      "kind": "AzureCLI",
-      "identity": {
-        "type": "UserAssigned",
-        "userAssignedIdentities": {
-          "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('deploymentScriptIdentityName'))]": {}
-        }
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.ContainerService/managedClusters', variables('aksName'))]",
-        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('deploymentScriptIdentityName'))]",
-        "[guid(resourceGroup().id, variables('deploymentScriptIdentityName'), 'Contributor')]"
-      ],
-      "properties": {
-        "azCliVersion": "2.60.0",
-        "timeout": "PT10M",
-        "retentionInterval": "PT1H",
-        "cleanupPreference": "OnSuccess",
-        "scriptContent": "[concat('set -e\naz aks install-cli --only-show-errors\naz aks get-credentials --resource-group ', resourceGroup().name, ' --name ', variables('aksName'), ' --overwrite-existing\nkubectl create namespace latina --dry-run=client -o yaml | kubectl apply -f -\ncat <<EOF | kubectl apply -f -\n', variables('ingressManifest'), 'EOF\n')]"      }
     }
   ],
   "outputs": {

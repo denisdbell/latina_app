@@ -1,7 +1,7 @@
 parameters:
   - name: jdkVersion
     type: string
-    default: '1.17'
+    default: '1.21'
   - name: serviceName
     type: string
   - name: devAcrConnection

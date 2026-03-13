@@ -5,15 +5,15 @@ metadata:
   namespace: inspire
   labels:
     app: frontend-service
+    slot: blue
 spec:
   selector:
     app: frontend-service
+    slot: blue
   ports:
   - name: http
     port: 80
     targetPort: 8080
     protocol: TCP
-  # LoadBalancer causes AKS to provision a public Azure Load Balancer.
-  # After applying, run: kubectl get svc frontend-service -n inspire
-  # and use the EXTERNAL-IP to open the app in a browser.
-  type: LoadBalancer
+  # ClusterIP: internal only. External traffic comes through the ingress.
+  type: ClusterIP

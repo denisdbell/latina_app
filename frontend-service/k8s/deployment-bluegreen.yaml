@@ -1,20 +1,23 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: frontend-service
+  name: frontend-service-#{SLOT}#
   namespace: inspire
   labels:
     app: frontend-service
+    slot: #{SLOT}#
     app.kubernetes.io/part-of: inspire-app
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: frontend-service
+      slot: #{SLOT}#
   template:
     metadata:
       labels:
         app: frontend-service
+        slot: #{SLOT}#
     spec:
       containers:
       - name: frontend-service

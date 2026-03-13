@@ -3,7 +3,7 @@
 This guide covers deploying the **Latina App** to Azure Kubernetes Service (AKS) using the ARM template and Azure DevOps (ADO) pipelines.
 
 **Repositories:**
-- App source: https://github.com/denisdbell/latina_app
+- App source: https://github.com/jremo25/latina_app
 - Pipeline templates: https://github.com/denisdbell/latina_app_template
 
 ---
@@ -200,7 +200,7 @@ To trigger: **Pipelines → select pipeline → Run pipeline → Run**.
 After the frontend pipeline completes, get the ingress public IP:
 
 ```bash
-kubectl get ingress latina-ingress -n latina
+kubectl get ingress latina-ingress -n dev
 ```
 
 | Path | Service |
@@ -221,7 +221,7 @@ kubectl get pods -n dev
 kubectl get svc -n dev
 
 # Check ingress
-kubectl get ingress -n latina
+kubectl get ingress -n dev
 
 # Stream logs for a service
 kubectl logs -f <pod-name> -n dev
