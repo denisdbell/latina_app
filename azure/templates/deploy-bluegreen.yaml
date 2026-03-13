@@ -33,75 +33,63 @@ parameters:
 
 jobs:
 # ── Job 1: Prepare manifest and detect active slot ───────────────────────────
-- deployment: Prepare_${{ parameters.environmentName }}
+- job: Prepare_${{ parameters.environmentName }}
   displayName: 'Prepare Manifest for ${{ parameters.environmentName }}'
-  dependsOn: []
-  environment: ${{ parameters.environmentName }}
   pool:
     vmImage: 'ubuntu-latest'
-  strategy:
-    runOnce:
-      deploy:
-        steps:
-        - checkout: self
+  steps:
+  - checkout: self
 
-        # Detect active slot using Kubernetes task
-        - task: Kubernetes@1
-          displayName: 'Detect Active Slot'
-          name: detectSlot
-          inputs:
-            connectionType: 'Kubernetes Service Connection'
-            kubernetesServiceEndpoint: '${{ parameters.aksServiceConnection }}'
-            command: 'get'
-            arguments: 'svc ${{ parameters.serviceName }} -n ${{ parameters.namespace }} -o jsonpath={.spec.selector.slot}'
-          continueOnError: true
+  - script: |
+      SERVICE_NAME="${{ parameters.serviceName }}"
+      IMAGE_URL="${{ parameters.targetAcrLoginServer }}/${{ parameters.imageRepository }}:${{ parameters.imageTag }}"
+      NAMESPACE="${{ parameters.namespace }}"
 
-        # Prepare manifest with slot variables
-        - script: |
-            SERVICE_NAME="${{ parameters.serviceName }}"
-            IMAGE_URL="${{ parameters.targetAcrLoginServer }}/${{ parameters.imageRepository }}:${{ parameters.imageTag }}"
-            NAMESPACE="${{ parameters.namespace }}"
+      # Detect current active slot from service selector
+      ACTIVE_SLOT=$(kubectl get svc ${SERVICE_NAME} -n ${NAMESPACE} -o jsonpath='{.spec.selector.slot}' 2>/dev/null || echo "blue")
 
-            # Default to blue for first deployment
-            ACTIVE_SLOT="blue"
+      # If no slot exists (first deployment), default to blue
+      if [ -z "$ACTIVE_SLOT" ] || [ "$ACTIVE_SLOT" = "" ]; then
+        ACTIVE_SLOT="blue"
+      fi
 
-            # Determine target slot (opposite of active)
-            if [ "$ACTIVE_SLOT" = "blue" ]; then
-              TARGET_SLOT="green"
-            else
-              TARGET_SLOT="blue"
-            fi
+      # Determine target slot (opposite of active)
+      if [ "$ACTIVE_SLOT" = "blue" ]; then
+        TARGET_SLOT="green"
+      else
+        TARGET_SLOT="blue"
+      fi
 
-            echo "Active slot: ${ACTIVE_SLOT}"
-            echo "Target slot: ${TARGET_SLOT}"
+      echo "Active slot: ${ACTIVE_SLOT}"
+      echo "Target slot: ${TARGET_SLOT}"
 
-            # Set pipeline variables for subsequent jobs
-            echo "##vso[task.setvariable variable=activeSlot;isOutput=true]${ACTIVE_SLOT}"
-            echo "##vso[task.setvariable variable=targetSlot;isOutput=true]${TARGET_SLOT}"
+      # Set pipeline variables for subsequent jobs
+      echo "##vso[task.setvariable variable=activeSlot;isOutput=true]${ACTIVE_SLOT}"
+      echo "##vso[task.setvariable variable=targetSlot;isOutput=true]${TARGET_SLOT}"
 
-            # Update deployment manifest with slot parameter
-            sed -i "s|#{SLOT}#|${TARGET_SLOT}|g" ${SERVICE_NAME}/k8s/deployment-bluegreen.yaml
-            sed -i "s|<ACR_LOGIN_SERVER>|${{ parameters.targetAcrLoginServer }}|g" ${SERVICE_NAME}/k8s/deployment-bluegreen.yaml
-            sed -i "s|#{IMAGE_TAG}#|${{ parameters.imageTag }}|g" ${SERVICE_NAME}/k8s/deployment-bluegreen.yaml"
+      # Update deployment manifest with slot parameter
+      sed -i "s|#{SLOT}#|${TARGET_SLOT}|g" ${SERVICE_NAME}/k8s/deployment-bluegreen.yaml
+      sed -i "s|<ACR_LOGIN_SERVER>|${{ parameters.targetAcrLoginServer }}|g" ${SERVICE_NAME}/k8s/deployment-bluegreen.yaml
+      sed -i "s|#{IMAGE_TAG}#|${{ parameters.imageTag }}|g" ${SERVICE_NAME}/k8s/deployment-bluegreen.yaml
 
-            # Update namespace in manifests
-            sed -i "s|namespace: inspire|namespace: ${NAMESPACE}|g" ${SERVICE_NAME}/k8s/service.yaml
-            sed -i "s|namespace: inspire|namespace: ${NAMESPACE}|g" ${SERVICE_NAME}/k8s/deployment-bluegreen.yaml
+      # Update namespace in manifests
+      sed -i "s|namespace: inspire|namespace: ${NAMESPACE}|g" ${SERVICE_NAME}/k8s/service.yaml
+      sed -i "s|namespace: inspire|namespace: ${NAMESPACE}|g" ${SERVICE_NAME}/k8s/deployment-bluegreen.yaml
 
-            # For frontend-service, inject service URLs
-            if [ "$SERVICE_NAME" = "frontend-service" ]; then
-              sed -i "s|#{IMAGE_SERVICE_URL}#|${{ parameters.imageUrl }}|g" ${SERVICE_NAME}/k8s/deployment-bluegreen.yaml
-              sed -i "s|#{PHRASE_SERVICE_URL}#|${{ parameters.phraseUrl}}|g" ${SERVICE_NAME}/k8s/deployment-bluegreen.yaml
-            fi
+      # For frontend-service, inject service URLs
+      if [ "$SERVICE_NAME" = "frontend-service" ]; then
+        sed -i "s|#{IMAGE_SERVICE_URL}#|${{ parameters.imageUrl }}|g" ${SERVICE_NAME}/k8s/deployment-bluegreen.yaml
+        sed -i "s|#{PHRASE_SERVICE_URL}#|${{ parameters.phraseUrl }}|g" ${SERVICE_NAME}/k8s/deployment-bluegreen.yaml
+      fi
 
-            echo "Manifest after substitution:"
-            cat ${SERVICE_NAME}/k8s/deployment-bluegreen.yaml
-          displayName: 'Prepare Manifest with Slot Variables'
-          name: prepareManifest
+      echo "Manifest after substitution:"
+      cat ${SERVICE_NAME}/k8s/deployment-bluegreen.yaml
+    displayName: 'Detect Active Slot and Prepare Manifest'
+    name: detectSlot
 
-        - publish: ${{ parameters.serviceName }}/k8s
-          artifact: manifest-${{ parameters.serviceName }}-${{ parameters.environmentName }}
-          displayName: 'Publish Manifest Artifact'
+  - publish: ${{ parameters.serviceName }}/k8s
+    artifact: manifest-${{ parameters.serviceName }}-${{ parameters.environmentName }}
+    displayName: 'Publish Manifest Artifact'
 
 # ── Job 2: Deploy to inactive slot ─────────────────────────────────────────────
 - deployment: Deploy_${{ parameters.environmentName }}
@@ -170,78 +158,74 @@ jobs:
               $(Pipeline.Workspace)/manifest-${{ parameters.serviceName }}-${{ parameters.environmentName }}/deployment-bluegreen.yaml
 
         # Wait for deployment to be ready
-        - task: Kubernetes@1
+        - script: |
+            echo "Waiting for ${{ parameters.serviceName }}-$(targetSlot) to be ready..."
+            kubectl rollout status deployment/${{ parameters.serviceName }}-$(targetSlot) -n ${{ parameters.namespace }} --timeout=300s
+            echo ""
+            echo "=== Deployment Status ==="
+            kubectl get pods -n ${{ parameters.namespace }} -l app=${{ parameters.serviceName }},slot=$(targetSlot)
           displayName: 'Wait for Deployment Ready'
-          inputs:
-            connectionType: 'Kubernetes Service Connection'
-            kubernetesServiceEndpoint: '${{ parameters.aksServiceConnection }}'
-            command: 'rollout'
-            arguments: 'status deployment/${{ parameters.serviceName }}-$(targetSlot) -n ${{ parameters.namespace }} --timeout=300s'
-
-        - task: Kubernetes@1
-          displayName: 'Check Deployment Status'
-          inputs:
-            connectionType: 'Kubernetes Service Connection'
-            kubernetesServiceEndpoint: '${{ parameters.aksServiceConnection }}'
-            command: 'get'
-            arguments: 'pods -n ${{ parameters.namespace }} -l app=${{ parameters.serviceName }},slot=$(targetSlot)'
 
         # Verify health checks pass before switch
-        - task: Kubernetes@1
+        - script: |
+            echo "Verifying $(targetSlot) deployment health..."
+            READY_PODS=$(kubectl get pods -n ${{ parameters.namespace }} -l app=${{ parameters.serviceName }},slot=$(targetSlot) -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' | tr ' ' '\n' | grep -c "True" || echo "0")
+            TOTAL_PODS=$(kubectl get pods -n ${{ parameters.namespace }} -l app=${{ parameters.serviceName }},slot=$(targetSlot) --no-headers | wc -l)
+
+            echo "Ready pods: ${READY_PODS}/${TOTAL_PODS}"
+
+            if [ "$READY_PODS" -lt "$TOTAL_PODS" ]; then
+              echo "Not all pods are ready. Aborting traffic switch."
+              exit 1
+            fi
+            echo "All pods are healthy and ready."
           displayName: 'Verify Health Checks'
-          inputs:
-            connectionType: 'Kubernetes Service Connection'
-            kubernetesServiceEndpoint: '${{ parameters.aksServiceConnection }}'
-            command: 'get'
-            arguments: 'pods -n ${{ parameters.namespace }} -l app=${{ parameters.serviceName }},slot=$(targetSlot) -o jsonpath={.items[*].status.conditions[?(@.type=="Ready")].status}'
 
 # ── Job 3: Switch traffic to new slot ─────────────────────────────────────────
-- deployment: Switch_Traffic_${{ parameters.environmentName }}
+- job: Switch_Traffic_${{ parameters.environmentName }}
   displayName: 'Switch Traffic to New Slot'
   dependsOn: Deploy_${{ parameters.environmentName }}
   condition: succeeded()
-  environment: ${{ parameters.environmentName }}
   pool:
     vmImage: 'ubuntu-latest'
   variables:
     targetSlot: $[ dependencies.Prepare_${{ parameters.environmentName }}.outputs['detectSlot.targetSlot'] ]
     activeSlot: $[ dependencies.Prepare_${{ parameters.environmentName }}.outputs['detectSlot.activeSlot'] ]
-  strategy:
-    runOnce:
-      deploy:
-        steps:
-        # Switch service selector to new slot
-        - task: Kubernetes@1
-          displayName: 'Switch Service Selector to $(targetSlot)'
-          inputs:
-            connectionType: 'Kubernetes Service Connection'
-            kubernetesServiceEndpoint: '${{ parameters.aksServiceConnection }}'
-            command: 'patch'
-            arguments: 'svc ${{ parameters.serviceName }} -n ${{ parameters.namespace }} -p "{\"spec\":{\"selector\":{\"app\":\"${{ parameters.serviceName }}\",\"slot\":\"$(targetSlot)\"}}}"'
+  steps:
+  - script: |
+      SERVICE_NAME="${{ parameters.serviceName }}"
+      NAMESPACE="${{ parameters.namespace }}"
+      TARGET_SLOT="$(targetSlot)"
 
-        # Verify service selector updated
-        - task: Kubernetes@1
-          displayName: 'Verify Service Selector'
-          inputs:
-            connectionType: 'Kubernetes Service Connection'
-            kubernetesServiceEndpoint: '${{ parameters.aksServiceConnection }}'
-            command: 'get'
-            arguments: 'svc ${{ parameters.serviceName }} -n ${{ parameters.namespace }} -o jsonpath={.spec.selector}'
+      echo "Switching traffic from $(activeSlot) to ${TARGET_SLOT}..."
 
-        # Check endpoints are populated
-        - task: Kubernetes@1
-          displayName: 'Verify Endpoints'
-          inputs:
-            connectionType: 'Kubernetes Service Connection'
-            kubernetesServiceEndpoint: '${{ parameters.aksServiceConnection }}'
-            command: 'get'
-            arguments: 'endpoints ${{ parameters.serviceName }} -n ${{ parameters.namespace }}'
+      # Patch service to route to new slot
+      kubectl patch svc ${SERVICE_NAME} -n ${NAMESPACE} -p "{\"spec\":{\"selector\":{\"slot\":\"${TARGET_SLOT}\"}}}"
 
-        # Verify traffic routing
-        - task: Kubernetes@1
-          displayName: 'Verify Traffic Routing'
-          inputs:
-            connectionType: 'Kubernetes Service Connection'
-            kubernetesServiceEndpoint: '${{ parameters.aksServiceConnection }}'
-            command: 'get'
-            arguments: 'pods -n ${{ parameters.namespace }} -l app=${{ parameters.serviceName }},slot=$(targetSlot)'
+      echo ""
+      echo "=== Service Selector After Switch ==="
+      kubectl get svc ${SERVICE_NAME} -n ${NAMESPACE} -o jsonpath='{.spec.selector}'
+      echo ""
+
+      echo ""
+      echo "=== Endpoints After Switch ==="
+      kubectl get endpoints ${SERVICE_NAME} -n ${NAMESPACE}
+    displayName: 'Switch Service Selector to $(targetSlot)'
+
+  - script: |
+      SERVICE_NAME="${{ parameters.serviceName }}"
+      NAMESPACE="${{ parameters.namespace }}"
+      TARGET_SLOT="$(targetSlot)"
+
+      echo "Verifying traffic is routing to ${TARGET_SLOT}..."
+
+      # Check that endpoints are populated with the new slot pods
+      ENDPOINT_PODS=$(kubectl get endpoints ${SERVICE_NAME} -n ${NAMESPACE} -o jsonpath='{.subsets[0].addresses[*].ip}' | wc -w)
+
+      if [ "$ENDPOINT_PODS" -eq 0 ]; then
+        echo "ERROR: No endpoints found for service. Traffic switch may have failed."
+        exit 1
+      fi
+
+      echo "Successfully switched traffic to ${TARGET_SLOT}. Endpoints: ${ENDPOINT_PODS}"
+    displayName: 'Verify Traffic Routing'
