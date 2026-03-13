@@ -9,111 +9,116 @@ parameters:
   type: string
 
 jobs:
-- job: Rollback_${{ parameters.environmentName }}
+- deployment: Rollback_${{ parameters.environmentName }}
   displayName: 'Rollback ${{ parameters.serviceName }} in ${{ parameters.environmentName }}'
+  environment: ${{ parameters.environmentName }}
   pool:
     vmImage: 'ubuntu-latest'
-  steps:
-  - script: |
-      SERVICE_NAME="${{ parameters.serviceName }}"
-      NAMESPACE="${{ parameters.namespace }}"
+  strategy:
+    runOnce:
+      deploy:
+        steps:
+        # Step 1: Detect current active slot
+        - task: Kubernetes@1
+          displayName: 'Detect Current Active Slot'
+          name: detectSlot
+          inputs:
+            connectionType: 'Kubernetes Service Connection'
+            kubernetesServiceEndpoint: '${{ parameters.aksServiceConnection }}'
+            command: 'get'
+            arguments: 'svc ${{ parameters.serviceName }} -n ${{ parameters.namespace }} -o jsonpath={.spec.selector.slot}'
 
-      echo "=== Detecting Current Active Slot ==="
-      CURRENT_SLOT=$(kubectl get svc ${SERVICE_NAME} -n ${NAMESPACE} -o jsonpath='{.spec.selector.slot}')
-      echo "Current active slot: ${CURRENT_SLOT}"
+        # Step 2: Determine rollback target and verify deployment exists
+        - script: |
+            SERVICE_NAME="${{ parameters.serviceName }}"
+            NAMESPACE="${{ parameters.namespace }}"
 
-      if [ -z "$CURRENT_SLOT" ]; then
-        echo "ERROR: No slot selector found on service. Cannot rollback."
-        exit 1
-      fi
+            echo "=== Determining Rollback Target ==="
 
-      # Determine rollback target (opposite of current)
-      if [ "$CURRENT_SLOT" = "blue" ]; then
-        ROLLBACK_SLOT="green"
-      else
-        ROLLBACK_SLOT="blue"
-      fi
+            # Get current slot from previous task output
+            # Default to blue if not set
+            CURRENT_SLOT="${CURRENT_SLOT:-blue}"
 
-      echo "Rollback target slot: ${ROLLBACK_SLOT}"
+            if [ -z "$CURRENT_SLOT" ] || [ "$CURRENT_SLOT" = "" ]; then
+              CURRENT_SLOT="blue"
+            fi
 
-      # Check if rollback deployment exists and has ready pods
-      READY_PODS=$(kubectl get pods -n ${NAMESPACE} -l app=${SERVICE_NAME},slot=${ROLLBACK_SLOT} -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' | tr ' ' '\n' | grep -c "True" || echo "0")
-      TOTAL_PODS=$(kubectl get pods -n ${NAMESPACE} -l app=${SERVICE_NAME},slot=${ROLLBACK_SLOT} --no-headers 2>/dev/null | wc -l)
+            # Determine rollback target (opposite of current)
+            if [ "$CURRENT_SLOT" = "blue" ]; then
+              ROLLBACK_SLOT="green"
+            else
+              ROLLBACK_SLOT="blue"
+            fi
 
-      echo "Rollback slot (${ROLLBACK_SLOT}) pods: ${READY_PODS}/${TOTAL_PODS} ready"
+            echo "Current active slot: ${CURRENT_SLOT}"
+            echo "Rollback target slot: ${ROLLBACK_SLOT}"
 
-      if [ "$TOTAL_PODS" -eq 0 ]; then
-        echo "ERROR: No deployment found for ${ROLLBACK_SLOT} slot. Cannot rollback."
-        echo "Available deployments:"
-        kubectl get deployments -n ${NAMESPACE} -l app=${SERVICE_NAME}
-        exit 1
-      fi
+            # Set variable for next step
+            echo "##vso[task.setvariable variable=rollbackSlot]${ROLLBACK_SLOT}"
+          displayName: 'Determine Rollback Slot'
 
-      if [ "$READY_PODS" -lt "$TOTAL_PODS" ]; then
-        echo "WARNING: Not all rollback pods are ready. Proceeding with caution."
-      fi
+        # Step 3: Verify rollback deployment exists
+        - task: Kubernetes@1
+          displayName: 'Verify Rollback Deployment Exists'
+          inputs:
+            connectionType: 'Kubernetes Service Connection'
+            kubernetesServiceEndpoint: '${{ parameters.aksServiceConnection }}'
+            command: 'get'
+            arguments: 'deployment ${{ parameters.serviceName }}-$(rollbackSlot) -n ${{ parameters.namespace }} -o name'
 
-      # Set variables for next step
-      echo "##vso[task.setvariable variable=currentSlot]${CURRENT_SLOT}"
-      echo "##vso[task.setvariable variable=rollbackSlot]${ROLLBACK_SLOT}"
-    displayName: 'Detect Active Slot and Verify Rollback Target'
+        # Step 4: Verify rollback pods are ready
+        - task: Kubernetes@1
+          displayName: 'Check Rollback Pod Status'
+          inputs:
+            connectionType: 'Kubernetes Service Connection'
+            kubernetesServiceEndpoint: '${{ parameters.aksServiceConnection }}'
+            command: 'get'
+            arguments: 'pods -n ${{ parameters.namespace }} -l app=${{ parameters.serviceName }},slot=$(rollbackSlot)'
 
-  - script: |
-      SERVICE_NAME="${{ parameters.serviceName }}"
-      NAMESPACE="${{ parameters.namespace }}"
-      ROLLBACK_SLOT="$(rollbackSlot)"
+        # Step 5: Switch service selector to rollback slot
+        - task: Kubernetes@1
+          displayName: 'Switch Service Selector to Rollback Slot'
+          inputs:
+            connectionType: 'Kubernetes Service Connection'
+            kubernetesServiceEndpoint: '${{ parameters.aksServiceConnection }}'
+            command: 'patch'
+            arguments: 'svc ${{ parameters.serviceName }} -n ${{ parameters.namespace }} -p "{\"spec\":{\"selector\":{\"app\":\"${{ parameters.serviceName }}\",\"slot\":\"$(rollbackSlot)\"}}}"'
 
-      echo "=== Switching Traffic to ${ROLLBACK_SLOT} ==="
-      echo "Previous slot: $(currentSlot)"
-      echo "Target slot: ${ROLLBACK_SLOT}"
+        # Step 6: Verify service selector updated
+        - task: Kubernetes@1
+          displayName: 'Verify Service Selector Updated'
+          inputs:
+            connectionType: 'Kubernetes Service Connection'
+            kubernetesServiceEndpoint: '${{ parameters.aksServiceConnection }}'
+            command: 'get'
+            arguments: 'svc ${{ parameters.serviceName }} -n ${{ parameters.namespace }} -o jsonpath={.spec.selector}'
 
-      # Patch service selector
-      kubectl patch svc ${SERVICE_NAME} -n ${NAMESPACE} -p "{\"spec\":{\"selector\":{\"slot\":\"${ROLLBACK_SLOT}\"}}}"
+        # Step 7: Check endpoints after rollback
+        - task: Kubernetes@1
+          displayName: 'Verify Endpoints After Rollback'
+          inputs:
+            connectionType: 'Kubernetes Service Connection'
+            kubernetesServiceEndpoint: '${{ parameters.aksServiceConnection }}'
+            command: 'get'
+            arguments: 'endpoints ${{ parameters.serviceName }} -n ${{ parameters.namespace }}'
 
-      echo ""
-      echo "=== Service Updated ==="
-      kubectl get svc ${SERVICE_NAME} -n ${NAMESPACE} -o jsonpath='{.spec.selector}'
-      echo ""
-    displayName: 'Switch Service Selector'
+        # Step 8: Verify rollback pods are serving traffic
+        - task: Kubernetes@1
+          displayName: 'Verify Rollback Pods'
+          inputs:
+            connectionType: 'Kubernetes Service Connection'
+            kubernetesServiceEndpoint: '${{ parameters.aksServiceConnection }}'
+            command: 'get'
+            arguments: 'pods -n ${{ parameters.namespace }} -l app=${{ parameters.serviceName }},slot=$(rollbackSlot) -o wide'
 
-  - script: |
-      SERVICE_NAME="${{ parameters.serviceName }}"
-      NAMESPACE="${{ parameters.namespace }}"
-      ROLLBACK_SLOT="$(rollbackSlot)"
-
-      echo "=== Verifying Rollback ==="
-
-      # Wait briefly for endpoints to update
-      sleep 5
-
-      # Check endpoints
-      ENDPOINT_IPS=$(kubectl get endpoints ${SERVICE_NAME} -n ${NAMESPACE} -o jsonpath='{.subsets[0].addresses[*].ip}')
-      ENDPOINT_COUNT=$(echo "$ENDPOINT_IPS" | wc -w)
-
-      echo "Endpoints for ${SERVICE_NAME}:"
-      kubectl get endpoints ${SERVICE_NAME} -n ${NAMESPACE}
-
-      if [ "$ENDPOINT_COUNT" -eq 0 ]; then
-        echo "ERROR: No endpoints found after rollback. Traffic may not be routing."
-        exit 1
-      fi
-
-      # Verify endpoints point to rollback slot pods
-      echo ""
-      echo "Verifying endpoints point to ${ROLLBACK_SLOT} slot pods..."
-      POD_IPS=$(kubectl get pods -n ${NAMESPACE} -l app=${SERVICE_NAME},slot=${ROLLBACK_SLOT} -o jsonpath='{.items[*].status.podIP}')
-
-      for IP in $ENDPOINT_IPS; do
-        if echo "$POD_IPS" | grep -q "$IP"; then
-          echo "✓ Endpoint $IP -> ${ROLLBACK_SLOT} pod"
-        else
-          echo "✗ Endpoint $IP may not be from ${ROLLBACK_SLOT} slot"
-        fi
-      done
-
-      echo ""
-      echo "=== Rollback Complete ==="
-      echo "Service ${SERVICE_NAME} is now routing to ${ROLLBACK_SLOT} slot"
-      echo "Active pods:"
-      kubectl get pods -n ${NAMESPACE} -l app=${SERVICE_NAME},slot=${ROLLBACK_SLOT}
-    displayName: 'Verify Rollback Success'
+        # Step 9: Log rollback summary
+        - script: |
+            echo "=========================================="
+            echo "=== ROLLBACK COMPLETE ==="
+            echo "=========================================="
+            echo "Service: ${{ parameters.serviceName }}"
+            echo "Namespace: ${{ parameters.namespace }}"
+            echo "Traffic now routing to: $(rollbackSlot) slot"
+            echo "Previous slot was: $(currentSlot)"
+            echo "=========================================="
+          displayName: 'Log Rollback Summary'
