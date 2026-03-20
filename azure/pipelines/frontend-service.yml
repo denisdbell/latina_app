@@ -2,6 +2,7 @@ trigger:
   branches:
     include:
       - main
+      - feature/*
   paths:
     include:
       - frontend-service/**
@@ -61,7 +62,7 @@ stages:
 - stage: DeployDev
   displayName: 'Deploy to Development'
   dependsOn: Build
-  condition: succeeded()
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
   jobs:
   - template: deploy.yaml@templates
     parameters:
@@ -80,7 +81,7 @@ stages:
 - stage: ApproveTesting
   displayName: 'Manual Approval - Promote to Testing'
   dependsOn: DeployDev
-  condition: succeeded()
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
   jobs:
   - job: WaitForApprovalTesting
     pool: server
@@ -93,7 +94,7 @@ stages:
 - stage: DeployTest
   displayName: 'Deploy to Testing'
   dependsOn: ApproveTesting
-  condition: succeeded()
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
   jobs:
   - template: deploy.yaml@templates
     parameters:
@@ -114,7 +115,7 @@ stages:
 - stage: ApproveProd
   displayName: 'Manual Approval - Promote to Production'
   dependsOn: DeployTest
-  condition: succeeded()
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
   jobs:
   - job: WaitForApprovalProd
     pool: server
@@ -127,7 +128,7 @@ stages:
 - stage: DeployProd
   displayName: 'Deploy to Production'
   dependsOn: ApproveProd
-  condition: succeeded()
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
   jobs:
   - template: deploy.yaml@templates
     parameters:
