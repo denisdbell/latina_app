@@ -14,9 +14,7 @@
     }
   },
   "variables": {
-    "devAcrName": "[concat('acrlatinadev', parameters('uniqueSuffix'))]",
-    "testAcrName": "[concat('acrlatinatest', parameters('uniqueSuffix'))]",
-    "prodAcrName": "[concat('acrlatinaprod', parameters('uniqueSuffix'))]",
+    "acrName": "[concat('acrlatinashared', parameters('uniqueSuffix'))]",
     "aksName": "aks-latina-shared",
     "vnetName": "vnet-latina",
     "subnetAksName": "snet-aks",
@@ -91,27 +89,9 @@
     {
       "type": "Microsoft.ContainerRegistry/registries",
       "apiVersion": "2023-07-01",
-      "name": "[variables('devAcrName')]",
+      "name": "[variables('acrName')]",
       "location": "[parameters('location')]",
-      "tags": { "application": "latina", "environment": "dev" },
-      "sku": { "name": "Basic" },
-      "properties": { "adminUserEnabled": false, "anonymousPullEnabled": false, "publicNetworkAccess": "Enabled" }
-    },
-    {
-      "type": "Microsoft.ContainerRegistry/registries",
-      "apiVersion": "2023-07-01",
-      "name": "[variables('testAcrName')]",
-      "location": "[parameters('location')]",
-      "tags": { "application": "latina", "environment": "test" },
-      "sku": { "name": "Basic" },
-      "properties": { "adminUserEnabled": false, "anonymousPullEnabled": false, "publicNetworkAccess": "Enabled" }
-    },
-    {
-      "type": "Microsoft.ContainerRegistry/registries",
-      "apiVersion": "2023-07-01",
-      "name": "[variables('prodAcrName')]",
-      "location": "[parameters('location')]",
-      "tags": { "application": "latina", "environment": "prod" },
+      "tags": { "application": "latina" },
       "sku": { "name": "Basic" },
       "properties": { "adminUserEnabled": false, "anonymousPullEnabled": false, "publicNetworkAccess": "Enabled" }
     },
@@ -159,41 +139,11 @@
     {
       "type": "Microsoft.Authorization/roleAssignments",
       "apiVersion": "2022-04-01",
-      "name": "[guid(resourceId('Microsoft.ContainerRegistry/registries', variables('devAcrName')), variables('aksName'), 'AcrPull')]",
-      "scope": "[resourceId('Microsoft.ContainerRegistry/registries', variables('devAcrName'))]",
+      "name": "[guid(resourceId('Microsoft.ContainerRegistry/registries', variables('acrName')), variables('aksName'), 'AcrPull')]",
+      "scope": "[resourceId('Microsoft.ContainerRegistry/registries', variables('acrName'))]",
       "dependsOn": [
         "[resourceId('Microsoft.ContainerService/managedClusters', variables('aksName'))]",
-        "[resourceId('Microsoft.ContainerRegistry/registries', variables('devAcrName'))]"
-      ],
-      "properties": {
-        "roleDefinitionId": "[variables('acrPullRoleId')]",
-        "principalId": "[reference(resourceId('Microsoft.ContainerService/managedClusters', variables('aksName')), '2024-01-01').identityProfile.kubeletidentity.objectId]",
-        "principalType": "ServicePrincipal"
-      }
-    },
-    {
-      "type": "Microsoft.Authorization/roleAssignments",
-      "apiVersion": "2022-04-01",
-      "name": "[guid(resourceId('Microsoft.ContainerRegistry/registries', variables('testAcrName')), variables('aksName'), 'AcrPull')]",
-      "scope": "[resourceId('Microsoft.ContainerRegistry/registries', variables('testAcrName'))]",
-      "dependsOn": [
-        "[resourceId('Microsoft.ContainerService/managedClusters', variables('aksName'))]",
-        "[resourceId('Microsoft.ContainerRegistry/registries', variables('testAcrName'))]"
-      ],
-      "properties": {
-        "roleDefinitionId": "[variables('acrPullRoleId')]",
-        "principalId": "[reference(resourceId('Microsoft.ContainerService/managedClusters', variables('aksName')), '2024-01-01').identityProfile.kubeletidentity.objectId]",
-        "principalType": "ServicePrincipal"
-      }
-    },
-    {
-      "type": "Microsoft.Authorization/roleAssignments",
-      "apiVersion": "2022-04-01",
-      "name": "[guid(resourceId('Microsoft.ContainerRegistry/registries', variables('prodAcrName')), variables('aksName'), 'AcrPull')]",
-      "scope": "[resourceId('Microsoft.ContainerRegistry/registries', variables('prodAcrName'))]",
-      "dependsOn": [
-        "[resourceId('Microsoft.ContainerService/managedClusters', variables('aksName'))]",
-        "[resourceId('Microsoft.ContainerRegistry/registries', variables('prodAcrName'))]"
+        "[resourceId('Microsoft.ContainerRegistry/registries', variables('acrName'))]"
       ],
       "properties": {
         "roleDefinitionId": "[variables('acrPullRoleId')]",
@@ -244,7 +194,8 @@
         "timeout": "PT10M",
         "retentionInterval": "PT1H",
         "cleanupPreference": "OnSuccess",
-        "scriptContent": "[concat('set -e\naz aks install-cli --only-show-errors\naz aks get-credentials --resource-group ', resourceGroup().name, ' --name ', variables('aksName'), ' --overwrite-existing\nkubectl create namespace latina --dry-run=client -o yaml | kubectl apply -f -\ncat <<EOF | kubectl apply -f -\n', variables('ingressManifest'), 'EOF\n')]"      }
+        "scriptContent": "[concat('set -e\naz aks install-cli --only-show-errors\naz aks get-credentials --resource-group ', resourceGroup().name, ' --name ', variables('aksName'), ' --overwrite-existing\nkubectl create namespace latina --dry-run=client -o yaml | kubectl apply -f -\ncat <<EOF | kubectl apply -f -\n', variables('ingressManifest'), 'EOF\n')]"
+      }
     }
   ],
   "outputs": {
@@ -252,17 +203,9 @@
       "type": "string",
       "value": "[parameters('uniqueSuffix')]"
     },
-    "devAcrLoginServer": {
+    "acrLoginServer": {
       "type": "string",
-      "value": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('devAcrName'))).loginServer]"
-    },
-    "testAcrLoginServer": {
-      "type": "string",
-      "value": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('testAcrName'))).loginServer]"
-    },
-    "prodAcrLoginServer": {
-      "type": "string",
-      "value": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('prodAcrName'))).loginServer]"
+      "value": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('acrName'))).loginServer]"
     },
     "aksName": {
       "type": "string",
