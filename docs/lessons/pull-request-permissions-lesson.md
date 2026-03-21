@@ -32,6 +32,59 @@ By the end of this lesson, you will be able to:
 
 ---
 
+## Step 0: Deploy Azure Infrastructure (30 minutes)
+
+Before configuring Azure DevOps, you need to deploy the Azure infrastructure that the pipelines will deploy to.
+
+### 0.1 Download the main.json
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/denisdbell/latina_app/refs/heads/main/azure/arm/main.json -o main.json
+```
+
+### 0.2 Create a resource group
+
+```bash
+az group create --name rg-latina --location westus3
+```
+
+### 0.3 Deploy the ARM template
+
+```bash
+az deployment group create \
+  --resource-group rg-latina \
+  --template-file main.json
+```
+
+### 0.4 Note the deployment outputs
+
+```bash
+az deployment group show \
+  --resource-group rg-latina \
+  --name main \
+  --query properties.outputs
+```
+
+Keep a note of `acrLoginServer` and `aksName` — you will need them in later steps.
+
+### 0.5 Connect kubectl to the cluster
+
+```bash
+az aks get-credentials --resource-group rg-latina --name aks-latina-shared
+```
+
+### 0.6 Create Kubernetes namespaces
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/denisdbell/latina_app/refs/heads/main/azure/arm/namespaces.yaml -o namespaces.yaml
+
+kubectl apply -f namespaces.yaml
+```
+
+This creates the `dev`, `test`, and `prod` namespaces with network isolation policies and resource quotas.
+
+---
+
 ## Part 1: Import Repositories (15 minutes)
 
 ### 1.1 Import latina_app Repository
