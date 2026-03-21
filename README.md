@@ -278,3 +278,27 @@ az aks stop --resource-group rg-latina --name aks-latina-shared
 # Restart when needed
 az aks start --resource-group rg-latina --name aks-latina-shared
 ```
+
+---
+
+## Contributing
+
+When submitting pull requests in Azure DevOps, please use the provided template.
+
+### Pull Request Template
+
+The repository includes a pull request template. When creating a PR in Azure DevOps:
+
+1. Navigate to **Repos → Pull requests → New pull request**
+2. The template sections to include:
+   - Summary
+   - Related Work Items (link Azure Boards work items using `AB#<id>`)
+   - Checklist
+   - Notes for Reviewers
+
+3. Fill out all relevant sections before submitting
+
+To manually reference the template:
+```bash
+curl -fsSL https://raw.githubusercontent.com/denisdbell/latina_app/main/.azuredevops/PULL_REQUEST_TEMPLATE.md
+```
