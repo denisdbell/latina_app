@@ -39,7 +39,7 @@ Before configuring Azure DevOps, you need to deploy the Azure infrastructure tha
 ### 0.1 Download the main.json
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/denisdbell/latina_app/refs/heads/pull-request-permissions-lesson/azure/arm/main.json -o main.json
+curl -fsSL https://raw.githubusercontent.com/denisdbell/latina_app/refs/heads/pull-request-permission/azure/arm/main.json -o main.json
 ```
 
 ### 0.2 Create a resource group
@@ -76,7 +76,7 @@ az aks get-credentials --resource-group rg-latina --name aks-latina-shared
 ### 0.6 Create Kubernetes namespaces
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/denisdbell/latina_app/refs/heads/pull-request-permissions-lesson/azure/arm/namespaces.yaml -o namespaces.yaml
+curl -fsSL https://raw.githubusercontent.com/denisdbell/latina_app/refs/heads/pull-request-permission/azure/arm/namespaces.yaml -o namespaces.yaml
 
 kubectl apply -f namespaces.yaml
 ```
