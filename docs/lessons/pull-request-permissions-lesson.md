@@ -13,157 +13,315 @@ This lesson covers how to implement pull request (PR) permissions and policies i
 ## Learning Objectives
 
 By the end of this lesson, you will be able to:
-1. Configure branch protection policies in Azure DevOps
-2. Set up required reviewers and code review workflows
-3. Implement build validation policies for frontend changes
-4. Configure environment-specific approval gates (dev → test → prod)
-5. Establish security roles and permissions for PR workflows
+1. Import repositories into Azure DevOps
+2. Create required service connections for pipeline deployment
+3. Configure and populate pipeline variables
+4. Configure branch protection policies in Azure DevOps
+5. Set up required reviewers and code review workflows
+6. Implement build validation policies for frontend changes
 
 ---
 
 ## Prerequisites
 
-- Azure DevOps project with `latina_app` repository
-- Frontend service pipeline configured (see `azure/pipelines/frontend-service.yml`)
+- Azure DevOps project created
+- Access to GitHub repositories:
+  - https://github.com/denisdbell/latina_app
+  - https://github.com/denisdbell/latina_app_template
 - Basic understanding of Git workflows
 
 ---
 
-## Part 1: Understanding the Deployment Flow (15 minutes)
+## Part 1: Import Repositories (15 minutes)
 
-### Current Pipeline Architecture
+### 1.1 Import latina_app Repository
 
-The frontend service pipeline (`azure/pipelines/frontend-service.yml`) follows this flow:
+Navigate to: **Repos → Files → Import a repository**
 
+**Step 1:** Click **"Import"** or **"Import a repository"**
+
+**Step 2:** Enter the clone URL:
 ```
-┌─────────┐     ┌────────────┐     ┌───────────────┐     ┌────────────┐     ┌───────────────┐     ┌────────────┐
-│  Build  │────▶│ Deploy Dev │────▶│ Approve Test  │────▶│ Deploy Test│────▶│ Approve Prod  │────▶│ Deploy Prod│
-│         │     │            │     │ (Manual Gate) │     │            │     │ (Manual Gate) │     │            │
-└─────────┘     └────────────┘     └───────────────┘     └────────────┘     └───────────────┘     └────────────┘
-```
-
-### Trigger Configuration
-
-The pipeline is triggered by changes to the `main` branch with path filters:
-
-```yaml
-trigger:
-  branches:
-    include:
-      - main
-  paths:
-    include:
-      - frontend-service/**
-      - pom.xml
-      - azure/pipelines/frontend-service.yml
+https://github.com/denisdbell/latina_app
 ```
 
-**Key Point:** Any PR merging into `main` that touches frontend files will trigger the full deployment pipeline.
+**Step 3:** Name the repository: `latina_app`
+
+**Step 4:** Click **"Import"** and wait for completion
+
+### 1.2 Import latina_app_template Repository
+
+**Step 1:** Click **"Import a repository"** again
+
+**Step 2:** Enter the clone URL:
+```
+https://github.com/denisdbell/latina_app_template
+```
+
+**Step 3:** Name the repository: `latina_app_template`
+
+**Step 4:** Click **"Import"** and wait for completion
+
+### 1.3 Verify Repository Import
+
+After importing both repositories, verify they appear in your project:
+
+```
+Repos → Files
+├── latina_app
+│   ├── frontend-service/
+│   ├── azure/
+│   │   ├── pipelines/
+│   │   │   └── frontend-service.yml
+│   │   └── arm/
+│   │       └── main.json
+│   └── ...
+│
+└── latina_app_template
+    ├── build.yaml
+    ├── deploy.yaml
+    └── ...
+```
 
 ---
 
-## Part 2: Branch Protection Policies (25 minutes)
+## Part 2: Create Service Connections (20 minutes)
 
-### 2.1 Configuring Branch Policies in Azure DevOps
+### 2.1 Understanding Required Service Connections
 
-Navigate to: **Repos → Branches → main → Branch Policies**
+Based on the `azure/arm/main.json` and pipeline configuration, you need to create the following service connections:
+
+| Service Connection | Type | Purpose | Used In Environments |
+|-------------------|------|---------|---------------------|
+| `aks-service-connection` | Azure Kubernetes Service | Deploy to AKS cluster | dev, test, prod |
+| `acr-shared-service-connection` | Azure Container Registry | Push/pull container images | dev, test, prod |
+
+### 2.2 Create AKS Service Connection
+
+Navigate to: **Project Settings → Service connections → New service connection**
+
+**Step 1:** Select **"Kubernetes"** → **"Azure Kubernetes Service"**
+
+**Step 2:** Configure:
+- Connection name: `aks-service-connection`
+- Subscription: Select your Azure subscription
+- Cluster: `aks-latina-shared`
+- Namespace: Leave empty (will be specified per deployment)
+
+**Step 3:** Click **"Verify and Save"**
+
+### 2.3 Create ACR Service Connection
+
+**Step 1:** Click **"New service connection"** → Select **"Docker Registry"** → **"Azure Container Registry"**
+
+**Step 2:** Configure:
+- Connection name: `acr-shared-service-connection`
+- Subscription: Select your Azure subscription
+- Container registry: `acrlatinashared<uniqueSuffix>` (from ARM deployment)
+- Grant access to all pipelines: **Yes**
+
+**Step 3:** Click **"Verify and Save"**
+
+### 2.4 Verify Service Connections
+
+Ensure both service connections appear in your list:
+
+```
+Project Settings → Service connections
+├── aks-service-connection (Kubernetes)
+└── acr-shared-service-connection (Azure Container Registry)
+```
+
+---
+
+## Part 3: Create and Configure Pipeline (25 minutes)
+
+### 3.1 Create the Pipeline
+
+Navigate to: **Pipelines → New pipeline**
+
+**Step 1:** Select **"Azure Repos Git"**
+
+**Step 2:** Select the `latina_app` repository
+
+**Step 3:** Select **"Existing Azure Pipelines YAML file"**
+
+**Step 4:** Configure:
+- Branch: `pull-request-permission`
+- Path: `/azure/pipelines/frontend-service.yml`
+
+**Step 5:** Click **"Continue"**
+
+### 3.2 Populate Pipeline Variables
+
+Before saving the pipeline, you need to update the variables based on your ARM deployment outputs.
+
+**Step 1:** Retrieve the `uniqueSuffix` from your ARM deployment:
+```
+az deployment group show --resource-group <your-rg> --name <deployment-name> --query properties.outputs.uniqueSuffix.value
+```
+
+Or from the Azure portal, check the deployment outputs.
+
+**Step 2:** Update pipeline variables:
+
+| Variable | Value | Notes |
+|----------|-------|-------|
+| `uniqueSuffix` | `<from ARM deployment>` | e.g., `rs25m4je` |
+| `aksServiceConnection` | `aks-service-connection` | Already set |
+| `imageRepository` | `frontend-service` | Already set |
+
+**Step 3:** Save the pipeline:
+- Click **"Save"** (do not run yet)
+- The pipeline must exist before branch policies can reference it
+
+### 3.3 Verify Pipeline References Template Repository
+
+The pipeline references templates from `latina_app_template`:
+
+```yaml
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: LatinaApp/latina_app_template
+      ref: main
+```
+
+Ensure `latina_app_template` repository is imported and accessible.
+
+### 3.4 Pipeline Variable Configuration Summary
+
+Based on `azure/arm/main.json` outputs and pipeline requirements:
+
+```yaml
+# Required Pipeline Variables
+uniqueSuffix: '<from-deployment>'        # ARM output
+aksServiceConnection: 'aks-service-connection'
+devAcrConnection: 'acr-shared-service-connection'
+testAcrConnection: 'acr-shared-service-connection'
+prodAcrConnection: 'acr-shared-service-connection'
+
+# Derived Values (automatically computed)
+devAcrLoginServer: 'acrlatinashared$(uniqueSuffix).azurecr.io'
+testAcrLoginServer: 'acrlatinashared$(uniqueSuffix).azurecr.io'
+prodAcrLoginServer: 'acrlatinashared$(uniqueSuffix).azurecr.io'
+```
+
+---
+
+## Part 4: Branch Protection Policies (30 minutes)
+
+### 4.1 Setting pull-request-permission as Main Branch
+
+Before configuring policies, ensure `pull-request-permission` is set as the main branch.
+
+**Step 1:** Navigate to: **Project Settings → Repositories → latina_app**
+
+**Step 2:** Click **"Settings"** or **"Branch policies"**
+
+**Step 3:** Set default branch to `pull-request-permission`:
+- If needed, go to **Repos → Branches**
+- Hover over `pull-request-permission` branch
+- Click **"..."** → **"Set as default branch"**
+
+### 4.2 Configure Branch Policies
+
+Navigate to: **Repos → Branches → pull-request-permission → Branch Policies**
 
 ### Required Policies to Enable
 
-| Policy | Purpose | Recommended Settings |
-|--------|---------|---------------------|
-| **Require minimum reviewers** | Ensures code review | 2 reviewers minimum |
-| **Require reviewers** | Specific team approval | Frontend team lead required |
+| Policy | Purpose | Settings |
+|--------|---------|----------|
+| **Minimum reviewers** | Ensures code review | 1 reviewer minimum |
+| **Require merge strategy** | Commit history control | All strategies enabled |
+| **Build validation** | Automated testing | Frontend pipeline |
 | **Check for linked work items** | Traceability | Required |
-| **Build validation** | Automated testing | Frontend build pipeline |
-| **Require merge strategy** | Commit history control | Squash merge |
 
-### 2.2 Exercise: Configure Branch Policies
-
-**Step 1:** Navigate to your Azure DevOps project
-
-```
-Project Settings → Repositories → latina_app → Branches → main → Policies
-```
-
-**Step 2:** Enable the following policies:
+### 4.3 Exercise: Configure Branch Policies
 
 #### A. Minimum Reviewers
 
 1. Toggle **"Require a minimum number of reviewers"** to ON
-2. Set minimum reviewers to **2**
-3. Check **"Allow requesters to approve their own changes"** to OFF
+2. Set minimum reviewers to **1**
+3. **IMPORTANT:** Check **"Allow requesters to approve their own changes"** to ON
+   - This allows a single user to create and approve their own PR
 4. Check **"Allow completion even if some reviewers vote to wait or reject"** to OFF
 
-#### B. Required Reviewers for Frontend
+#### B. Merge Strategies
 
-1. Toggle **"Require reviewers"** to ON
-2. Add path filter: `/frontend-service/**`
-3. Add required reviewer group: **Frontend Team** or specific user
-4. Set to **Required** (not Optional)
+1. Toggle **"Require a merge strategy"** to ON
+2. **Enable ALL merge strategies:**
+   - Squash merge
+   - Merge commit
+   - Rebase and fast-forward
+3. This ensures flexibility in how changes are integrated
 
 #### C. Build Validation
 
 1. Toggle **"Build validation"** to ON
-2. Select build pipeline: `frontend-service` pipeline
+2. Select build pipeline: `frontend-service` pipeline (created in Part 3)
 3. Set trigger: **Run on every update**
 4. Enable **"Require successful build completion"**
+
+#### D. Work Item Linking
+
+1. Toggle **"Check for linked work items"** to ON
+2. Set to **Required**
+
+### 4.4 Adding a Single User as Required Reviewer
+
+**Step 1:** Navigate to branch policies (same screen)
+
+**Step 2:** Under **"Require reviewers"** section:
+1. Click **"Add reviewers"**
+2. In the search box, type the user's name or email
+3. Select the specific user (not a group)
+4. Set to **Required** (not Optional)
+5. Click **"Add"**
 
 **Step 3:** Save policies
 
 ---
 
-## Part 3: Repository Permissions (20 minutes)
+## Part 5: Repository Permissions (15 minutes)
 
-### 3.1 Understanding Permission Levels
+### 5.1 Understanding Permission Levels
 
 | Role | Read | Contribute | Create Branch | Force Push | Bypass Policies |
 |------|------|-----------|---------------|------------|-----------------|
-| Reader | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Contributor | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Administrator | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Reader | Yes | No | No | No | No |
+| Contributor | Yes | Yes | Yes | No | No |
+| Administrator | Yes | Yes | Yes | Yes | Yes |
 
-### 3.2 Exercise: Set Up Permission Structure
+### 5.2 Exercise: Configure User Permissions
 
 Navigate to: **Project Settings → Repositories → latina_app → Security**
 
-#### Recommended Permission Structure for Frontend:
+#### Configure Single User Permissions:
+
+1. Find the user in the list or use search
+2. Grant the following permissions:
 
 ```
-latina_app Repository
-├── Readers (Project Team)
-│   └── Read: Allow
-│
-├── Contributors (Developers)
-│   ├── Read: Allow
-│   ├── Contribute: Allow
-│   ├── Create Branch: Allow
-│   └── Force Push: Deny
-│
-├── Frontend Team
-│   ├── All Contributor permissions
-│   └── Manage permissions for /frontend-service/**
-│
-├── Build Service
-│   ├── Read: Allow
-│   ├── Contribute: Allow
-│   └── Create Branch: Allow (for tags)
-│
-└── Project Administrators
-    └── All permissions: Allow
+User Permissions for latina_app:
+├── Read: Allow
+├── Contribute: Allow
+├── Create Branch: Allow
+├── Create Tag: Allow
+├── Manage Note: Not Set
+├── Force Push: Deny
+├── Bypass Policies: Not Set
+└── Create Repository: Not Set
 ```
 
-#### Configure Frontend Team Permissions:
-
-1. Create a **Frontend Team** group
-2. Grant **Contribute** permission at repository level
-3. Add members who will work on frontend service
+3. Click **"Save changes"**
 
 ---
 
-## Part 4: Environment Approvals and Checks (30 minutes)
+## Part 6: Environment Approvals and Checks (15 minutes)
 
-### 4.1 Understanding Environment-Based Gates
+### 6.1 Understanding Environment-Based Gates
 
 The pipeline uses **Manual Validation** tasks for approvals between environments:
 
@@ -182,7 +340,7 @@ The pipeline uses **Manual Validation** tasks for approvals between environments
         instructions: 'Please validate Dev deployment and approve promotion to Testing.'
 ```
 
-### 4.2 Exercise: Configure Environment Approvals
+### 6.2 Configure Environment Approvals
 
 **Step 1:** Navigate to Environments
 
@@ -190,7 +348,7 @@ The pipeline uses **Manual Validation** tasks for approvals between environments
 Pipelines → Environments
 ```
 
-You should see (or create):
+Create (if not exists):
 - `dev`
 - `testing`
 - `prod`
@@ -202,47 +360,47 @@ You should see (or create):
 1. Click on **prod** environment
 2. Click **"..."** → **Approvals and checks**
 3. Add **Approvals**:
-   - Approvers: Add production team lead or operations team
+   - Approvers: Add the single designated user
    - Instructions: "Approve deployment to production environment"
    - Timeout: 7 days
 
 4. Add **Branch Control** check:
-   - Allowed branches: `refs/heads/main`
+   - Allowed branches: `refs/heads/pull-request-permission`
    - Required: Yes
-
-5. Add **Azure Kubernetes Service** check (if using AKS):
-   - Service connection: `aks-service-connection`
-   - Namespace: `prod`
-   - Check: Verify deployment status
 
 #### For `testing` environment:
 
-1. Approvers: QA team or frontend team lead
-2. Branch control: `refs/heads/main` or `refs/heads/release/*`
+1. Approvers: Same designated user
+2. Branch control: `refs/heads/pull-request-permission`
 
 #### For `dev` environment:
 
 1. No approval required (automatic deployment)
-2. Branch control: Any branch (for development testing)
-
-### 4.3 Advanced: Service Connection Security
-
-Navigate to: **Project Settings → Service connections**
-
-#### Configure Service Connection Approvals:
-
-| Service Connection | Environment | Approval Required |
-|-------------------|-------------|-------------------|
-| `dev-acr-service-connection` | dev | No |
-| `test-acr-service-connection` | testing | Yes - QA Team |
-| `prod-acr-service-connection` | prod | Yes - Ops Team |
-| `aks-service-connection` | all | Yes - Approvers per namespace |
+2. Branch control: `refs/heads/pull-request-permission`
 
 ---
 
-## Part 5: PR Workflow Best Practices (20 minutes)
+## Part 7: Complete Workflow Summary
 
-### 5.1 Recommended PR Workflow for Frontend
+### Pre-Setup Checklist
+
+Before starting, ensure the following are completed in order:
+
+```
+1. [ ] Import latina_app repository from GitHub
+2. [ ] Import latina_app_template repository from GitHub
+3. [ ] Create aks-service-connection (Kubernetes)
+4. [ ] Create acr-shared-service-connection (Azure Container Registry)
+5. [ ] Create pipeline from azure/pipelines/frontend-service.yml
+6. [ ] Set uniqueSuffix variable from ARM deployment
+7. [ ] Verify pipeline references latina_app_template repository
+8. [ ] Set pull-request-permission as default branch
+9. [ ] Configure branch policies
+10. [ ] Add single user as required reviewer
+11. [ ] Configure environment approvals
+```
+
+### PR Workflow
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
@@ -255,169 +413,26 @@ Navigate to: **Project Settings → Service connections**
 │   2. Developer pushes changes:                                                          │
 │      git push origin feature/frontend-update                                            │
 │                                                                                         │
-│   3. Developer creates PR targeting main                                                │
+│   3. Developer creates PR targeting pull-request-permission                            │
 │                                                                                         │
 │   4. Build validation runs automatically                                                │
 │      ├── Builds frontend-service                                                        │
 │      ├── Runs unit tests                                                                │
 │      └── Status reported to PR                                                          │
 │                                                                                         │
-│   5. Reviewers assigned automatically (based on /frontend-service/** path)              │
+│   5. Single reviewer approves (can be self-approval if enabled)                         │
 │                                                                                         │
-│   6. Required reviewers approve                                                         │
+│   6. PR is completed (any merge strategy)                                               │
+│      └── pull-request-permission branch updated → Pipeline triggered                   │
 │                                                                                         │
-│   7. PR is completed (squash merge)                                                      │
-│      └── Main branch updated → Pipeline triggered                                       │
+│   7. Pipeline deploys to dev automatically                                               │
 │                                                                                         │
-│   8. Pipeline deploys to dev automatically                                               │
+│   8. Manual approval for test environment (same user)                                   │
 │                                                                                         │
-│   9. Manual approval for test environment                                               │
-│                                                                                         │
-│   10. Manual approval for prod environment                                               │
+│   9. Manual approval for prod environment (same user)                                   │
 │                                                                                         │
 └─────────────────────────────────────────────────────────────────────────────────────────┘
 ```
-
-### 5.2 PR Template for Frontend Changes
-
-Create file: `.azuredevops/pull_request_templates/frontend.md`
-
-```markdown
-## Frontend Service Change
-
-### Description
-<!-- Describe your changes to the frontend service -->
-
-### Type of Change
-- [ ] Bug fix (non-breaking change)
-- [ ] New feature (non-breaking change)
-- [ ] Breaking change
-- [ ] UI/UX update
-- [ ] Performance improvement
-
-### Frontend Files Changed
-- [ ] `frontend-service/src/main/resources/static/index.html`
-- [ ] `frontend-service/src/main/resources/static/app.js`
-- [ ] `frontend-service/src/main/resources/static/style.css`
-- [ ] `frontend-service/src/main/java/`
-- [ ] `frontend-service/pom.xml`
-- [ ] `frontend-service/k8s/`
-
-### Testing
-- [ ] Unit tests pass locally
-- [ ] Manual testing completed
-- [ ] Browser compatibility tested (Chrome, Firefox, Safari)
-
-### Screenshots (if UI changes)
-<!-- Add screenshots here -->
-
-### Checklist
-- [ ] Code follows project style guidelines
-- [ ] Self-review completed
-- [ ] Comments added for complex logic
-- [ ] Documentation updated if needed
-- [ ] No new warnings introduced
-```
-
-### 5.3 Exercise: Create PR Template
-
-1. Create directory: `.azuredevops/pull_request_templates/`
-2. Create template file for frontend changes
-3. Test by creating a new PR
-
----
-
-## Part 6: Security Scenarios (10 minutes)
-
-### 6.1 Scenario: Preventing Unauthorized Deployments
-
-**Problem:** Developer tries to deploy unapproved frontend changes to production.
-
-**Solution:**
-```yaml
-# Environment checks prevent this
-- stage: DeployProd
-  dependsOn: ApproveProd
-  condition: succeeded()  # Only runs after approval
-  jobs:
-  - deployment: DeployProd
-    environment: prod  # Requires approval from designated approvers
-```
-
-### 6.2 Scenario: Bypass Protection for Hotfixes
-
-**Problem:** Critical production issue needs immediate fix.
-
-**Solution:**
-1. Create **Hotfix Branch Policy**:
-   - Branch filter: `hotfix/*`
-   - Reduced reviewers: 1 (instead of 2)
-   - Still require build validation
-
-2. Or: Grant **Bypass policies** permission to:
-   - Project Administrators
-   - Release Managers
-
-### 6.3 Scenario: External Contributor
-
-**Problem:** External developer wants to contribute to frontend.
-
-**Solution:**
-1. Fork workflow:
-   - External developer forks repository
-   - Creates PR from fork
-   - Project member reviews and approves
-   - Project member completes PR
-
-2. Configure **Fork policies**:
-   - Navigate to: Project Settings → Repositories → latina_app → Policies
-   - Enable **"Contribution from forks"** with restrictions
-   - Require **"Secret variable access"** to OFF
-
----
-
-## Part 7: Hands-On Lab (20 minutes)
-
-### Lab Exercise: Set Up Complete PR Policy Chain
-
-#### Task 1: Create Branch Policies (5 minutes)
-
-1. Navigate to your Azure DevOps project
-2. Go to **Repos → Branches**
-3. Click **"..."** on `main` branch → **Branch policies**
-4. Enable:
-   - Minimum reviewers: 2
-   - Required reviewers for `/frontend-service/**`: Frontend Team
-   - Build validation: frontend-service pipeline
-   - Work item linking: Required
-
-#### Task 2: Configure Environment Approvals (10 minutes)
-
-1. Go to **Pipelines → Environments**
-2. Create `dev`, `testing`, `prod` environments if not exists
-3. For `prod`:
-   - Add approvers: Your team lead
-   - Add branch control: `refs/heads/main`
-4. For `testing`:
-   - Add approvers: QA team
-   - Add branch control: `refs/heads/main` or `refs/heads/release/*`
-
-#### Task 3: Test the Workflow (5 minutes)
-
-1. Create a test branch:
-   ```bash
-   git checkout -b test/pr-policy-test
-   echo "// Test comment" >> frontend-service/src/main/resources/static/index.html
-   git add .
-   git commit -m "Test PR policy workflow"
-   git push origin test/pr-policy-test
-   ```
-
-2. Create PR targeting `main`
-3. Observe:
-   - Build validation triggered
-   - Reviewers automatically assigned
-   - PR cannot be completed without approvals
 
 ---
 
@@ -427,40 +442,48 @@ Create file: `.azuredevops/pull_request_templates/frontend.md`
 
 | Concept | Implementation |
 |---------|----------------|
-| Branch Protection | Policies on `main` branch |
-| Code Review | Minimum 2 reviewers, required for frontend paths |
+| Repository Import | Import latina_app and latina_app_template from GitHub |
+| Service Connections | AKS and ACR connections required |
+| Pipeline Setup | Create from YAML, set uniqueSuffix variable |
+| Branch Protection | Policies on `pull-request-permission` branch |
+| Code Review | 1 reviewer, self-approval allowed |
+| Merge Strategies | All strategies enabled (squash, merge, rebase) |
 | Build Validation | Automatic pipeline run on PR creation |
 | Environment Security | Manual approval gates for test/prod |
-| Permission Levels | Role-based access to repository and environments |
 
 ### Security Checklist
 
-- [ ] Branch policies configured on `main` branch
-- [ ] Minimum reviewers requirement set to 2+
-- [ ] Required reviewers assigned for `/frontend-service/**`
+- [ ] latina_app repository imported from GitHub
+- [ ] latina_app_template repository imported from GitHub
+- [ ] aks-service-connection created and verified
+- [ ] acr-shared-service-connection created and verified
+- [ ] Pipeline created from YAML file
+- [ ] uniqueSuffix variable populated from ARM deployment
+- [ ] Branch policies configured on `pull-request-permission` branch
+- [ ] Minimum reviewers set to 1
+- [ ] Self-approval option enabled
+- [ ] All merge strategies enabled
+- [ ] Single user added as required reviewer
 - [ ] Build validation enabled
-- [ ] Environment approvals configured (test, prod)
-- [ ] Service connections secured with approvals
-- [ ] PR templates created for frontend changes
-- [ ] Work item linking required
-- [ ] Merge strategy enforced (squash)
+- [ ] Environment approvals configured (dev, test, prod)
 
 ---
 
 ## Additional Resources
 
 ### Azure DevOps Documentation
+- [Import repositories](https://learn.microsoft.com/en-us/azure/devops/repos/git/import-git-repository)
+- [Service connections](https://learn.microsoft.com/en-us/azure/devops/pipelines/library/service-endpoints)
 - [Branch Policies](https://learn.microsoft.com/en-us/azure/devops/repos/git/branch-policies)
 - [Environment Approvals](https://learn.microsoft.com/en-us/azure/devops/pipelines/process/environments)
-- [Repository Security](https://learn.microsoft.com/en-us/azure/devops/repos/git/security)
 
 ### Project Files Reference
 
 | File | Purpose |
 |------|---------|
 | `azure/pipelines/frontend-service.yml` | Main pipeline with approval gates |
-| `azure/templates/deploy.yaml` | Deployment template |
-| `frontend-service/k8s/deployment.yaml` | Kubernetes deployment manifest |
+| `azure/arm/main.json` | ARM template with infrastructure outputs |
+| `azure/templates/deploy.yaml` | Deployment template (in latina_app_template) |
 
 ---
 
@@ -468,17 +491,20 @@ Create file: `.azuredevops/pull_request_templates/frontend.md`
 
 ### Common Questions
 
-**Q: Can I skip approvals for development environment?**
-A: Yes, the current pipeline deploys to dev automatically. Only test and prod require manual approval.
+**Q: Why do I need to import both repositories?**
+A: The pipeline in latina_app references templates from latina_app_template. Both must be imported for the pipeline to work correctly.
 
-**Q: How do I add temporary approvers for a specific release?**
-A: Navigate to the environment and add temporary approvers in the "Approvals and checks" section.
+**Q: Where do I get the uniqueSuffix value?**
+A: Run the ARM deployment first, then retrieve the uniqueSuffix from deployment outputs. This is used to construct the ACR login server URL.
 
-**Q: What happens if a build fails during validation?**
-A: The PR cannot be completed. The build must pass before merge is allowed.
+**Q: Why set pull-request-permission as the main branch?**
+A: This allows you to test PR policies without affecting your actual main branch. It creates an isolated workflow for learning.
 
-**Q: Can I configure different policies for different branches?**
-A: Yes, you can configure separate policies for `main`, `release/*`, `hotfix/*`, etc.
+**Q: Can a user approve their own PR?**
+A: Yes, when "Allow requesters to approve their own changes" is enabled in branch policies. This is useful for solo development or testing workflows.
+
+**Q: What if I need different reviewers for different paths?**
+A: Add multiple "Require reviewers" policies with different path filters. Each can have different reviewers.
 
 ---
 
