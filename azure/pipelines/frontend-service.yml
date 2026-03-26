@@ -34,6 +34,9 @@ variables:
   prodImageUrl: 'http://image-service.prod.svc.cluster.local:8081'
   prodPhraseUrl: 'http://phrase-service.prod.svc.cluster.local:8082'
 
+  # DAST Scan Configuration
+  dastTargetUrl: 'https://your-frontend-service-dev.azurewebsites.net'
+
   # Dev Environment
   devAcrConnection: 'acr-shared-service-connection'
   devAcrLoginServer: 'acrlatinashared$(uniqueSuffix).azurecr.io'
@@ -77,9 +80,39 @@ stages:
       imageUrl: '$(devImageUrl)'
       phraseUrl: '$(devPhraseUrl)'
 
+- stage: DASTScan
+  displayName: 'DAST Security Scan'
+  dependsOn: DeployDev
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/pull-request-permission'))
+  jobs:
+  - job: DASTScanJob
+    steps:
+    - task: AzureAppServiceSettings@1
+      displayName: 'Get Frontend Service URL'
+      inputs:
+        azureSubscription: '$(aksServiceConnection)'
+        appName: 'frontend-service'
+    - script: |
+        echo "Running OWASP ZAP DAST scan against deployed application"
+        # Install OWASP ZAP
+        sudo apt-get update
+        sudo apt-get install -y zaproxy
+      displayName: 'Install OWASP ZAP'
+    - script: |
+        # Run ZAP baseline scan against the frontend service
+        zap-baseline.py -t "$(dastTargetUrl)" -r baseline-report.html || true
+      displayName: 'Run DAST Baseline Scan'
+    - task: PublishHtmlReport@1
+      displayName: 'Publish DAST Report'
+      inputs:
+        reportDir: 'baseline-report.html'
+        reportName: 'DAST Security Report'
+        reportTitle: 'OWASP ZAP DAST Scan Results'
+        failOnWarning: false
+
 - stage: ApproveTesting
   displayName: 'Manual Approval - Promote to Testing'
-  dependsOn: DeployDev
+  dependsOn: DASTScan
   condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/pull-request-permission'))
   jobs:
   - job: WaitForApprovalTesting
@@ -88,7 +121,7 @@ stages:
     steps:
     - task: ManualValidation@0
       inputs:
-        instructions: 'Please validate Dev deployment and approve promotion to Testing.'
+        instructions: 'Please validate Dev deployment and DAST scan results before approving promotion to Testing.'
 
 - stage: DeployTest
   displayName: 'Deploy to Testing'
