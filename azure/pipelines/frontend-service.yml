@@ -125,6 +125,7 @@ stages:
 
     - script: |
         mkdir -p $(Pipeline.Workspace)/zap-reports
+        chmod 777 $(Pipeline.Workspace)/zap-reports
 
         echo "Running OWASP ZAP DAST scan against: $(dastTargetUrl)"
 
