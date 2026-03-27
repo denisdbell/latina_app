@@ -50,6 +50,13 @@ variables:
   prodAcrConnection: 'acr-shared-service-connection'
   prodAcrLoginServer: 'acrlatinashared$(uniqueSuffix).azurecr.io'
 
+#Add that step to the readme
+#A task is missing. The pipeline references a task called 
+#'PublishHtmlReport'. This usually indicates the task isn't installed, 
+#and you may be able to install it from the Marketplace: 
+#https://marketplace.visualstudio.com. (Task version 1, job 'DASTScanJob', step ''.)
+
+
 stages:
 - stage: Build
   displayName: 'Build Frontend Service'
