@@ -27,8 +27,8 @@ variables:
   uniqueSuffix: 'rs25m4je'
 
   # AKS Cluster Details
-  aksResourceGroup: 'your-resource-group'
-  aksClusterName: 'your-aks-cluster-name'
+  aksResourceGroup: 'rg-latina'
+  aksClusterName: 'aks-latina-shared'
 
   # Service URLs (update these based on your environment)
   devImageUrl: 'http://image-service.dev.svc.cluster.local:8081'
