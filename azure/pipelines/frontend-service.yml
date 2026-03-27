@@ -50,6 +50,8 @@ variables:
   prodAcrConnection: 'acr-shared-service-connection'
   prodAcrLoginServer: 'acrlatinashared$(uniqueSuffix).azurecr.io'
 
+  armServiceConnection: 'arm-service-connection'
+  
 #Add that step to the readme
 #A task is missing. The pipeline references a task called 
 #'PublishHtmlReport'. This usually indicates the task isn't installed, 
@@ -103,7 +105,7 @@ stages:
     - task: AzureCLI@2
       displayName: 'Get Frontend Service URL from AKS'
       inputs:
-        azureSubscription: '$(aksServiceConnection)'
+        azureSubscription: '$(armServiceConnection)'
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
