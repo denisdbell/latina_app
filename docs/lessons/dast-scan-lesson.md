@@ -118,24 +118,161 @@ This creates the `dev`, `test`, and `prod` namespaces with network isolation pol
 
 ---
 
-## Part 1: Create ARM Service Connection (10 minutes)
+## Step 1: Import Repositories (15 minutes)
 
-The DAST stage needs access to AKS to discover the frontend service URL.
+### 1.1 Import latina_app Repository
+
+Navigate to: **Repos → Files → Import a repository**
+
+**Step 1:** Click **"Import"** or **"Import a repository"**
+
+**Step 2:** Enter the clone URL:
+```
+https://github.com/denisdbell/latina_app
+```
+
+**Step 3:** Name the repository: `latina_app`
+
+**Step 4:** Click **"Import"** and wait for completion
+
+### 1.2 Import latina_app_template Repository
+
+**Step 1:** Click **"Import a repository"** again
+
+**Step 2:** Enter the clone URL:
+```
+https://github.com/denisdbell/latina_app_template
+```
+
+**Step 3:** Name the repository: `latina_app_template`
+
+**Step 4:** Click **"Import"** and wait for completion
+
+### 1.3 Verify Repository Import
+
+After importing both repositories, verify they appear in your project:
+
+```
+Repos → Files
+├── latina_app
+│   ├── frontend-service/
+│   ├── azure/
+│   │   ├── pipelines/
+│   │   │   └── frontend-service.yml
+│   │   └── arm/
+│   │       └── main.json
+│   └── ...
+│
+└── latina_app_template
+    ├── build.yaml
+    ├── deploy.yaml
+    └── ...
+```
+
+### 1.4 Clone Repository Locally
+
+After importing to Azure DevOps, clone the repository locally to make changes:
+
+**Step 1:** Get the ADO repository URL:
+
+Navigate to: **Repos → Files → Clone**
+
+Copy the HTTPS URL (e.g., `https://dev.azure.com/org/project/_git/latina_app`)
+
+**Step 2:** Clone locally:
+
+```bash
+# Clone the repository
+git clone https://dev.azure.com/denisemmanuel/LatinaApp/_git/latina_app
+
+# Navigate to the repository
+cd latina_app
+```
+
+### 1.5 Checkout the dast-scan Branch
+
+**Step 1:** Fetch and checkout the branch:
+
+```bash
+# Fetch all remote branches
+git fetch --all
+
+# List remote branches to verify dast-scan exists
+git branch -r
+
+# Checkout the dast-scan branch
+git checkout dast-scan
+
+# Pull latest changes
+git pull origin dast-scan
+```
+
+**Step 2:** If the branch doesn't exist locally, create it from remote:
+
+```bash
+# Create local branch tracking remote
+git checkout -b dast-scan origin/dast-scan
+```
+
+### 1.6 Add GitHub as Additional Remote (Optional)
+
+If you want to push changes to GitHub as well:
+
+```bash
+# Add GitHub as a remote named 'github'
+git remote add github https://github.com/denisdbell/latina_app.git
+
+# Verify remotes
+git remote -v
+
+# Push to both remotes
+git push origin dast-scan
+git push github dast-scan
+```
+
+---
+
+## Part 1: Create Service Connections (20 minutes)
+
+The DAST stage needs access to AKS to discover the frontend service URL, and the pipeline needs ACR access for container images.
 
 ### 1.1 Understanding Required Service Connections
 
-In addition to existing connections, DAST requires:
-
 | Service Connection | Type | Purpose |
 |-------------------|------|---------|
-| `aks-service-connection` | Kubernetes | Deploy to AKS (already created) |
+| `aks-service-connection` | Kubernetes | Deploy to AKS cluster |
+| `acr-shared-service-connection` | Azure Container Registry | Push/pull container images |
 | `arm-service-connection` | Azure Resource Manager | Get AKS credentials for URL discovery |
 
-### 1.2 Create ARM Service Connection
+### 1.2 Create AKS Service Connection
 
 Navigate to: **Project Settings → Service connections → New service connection**
 
-**Step 1:** Select **"Azure Resource Manager"**
+**Step 1:** Select **"Kubernetes"** → **"Azure Kubernetes Service"**
+
+**Step 2:** Configure:
+- Connection name: `aks-service-connection`
+- Subscription: Select your Azure subscription
+- Cluster: `aks-latina-shared`
+- Namespace: Leave empty (will be specified per deployment)
+
+**Step 3:** Click **"Verify and Save"**
+
+### 1.3 Create ACR Service Connection
+
+**Step 1:** Click **"New service connection"** → Select **"Docker Registry"** → **"Azure Container Registry"**
+
+**Step 2:** Configure:
+- Connection name: `acr-shared-service-connection`
+- Subscription: Select your Azure subscription
+- Container registry: `acrlatinashared<uniqueSuffix>` (from ARM deployment)
+- Grant access to all pipelines: **Yes**
+
+**Step 3:** Click **"Verify and Save"**
+
+### 1.4 Create ARM Service Connection
+
+**Step 1:** Click **"New service connection"** → Select **"Azure Resource Manager"**
 
 **Step 2:** Select **"Service principal (automatic)"**
 
@@ -148,7 +285,7 @@ Navigate to: **Project Settings → Service connections → New service connecti
 
 **Step 4:** Click **"Save"**
 
-### 1.3 Verify Service Connection
+### 1.5 Verify Service Connections
 
 Navigate to: **Project Settings → Service connections**
 
@@ -162,21 +299,11 @@ Service connections
 
 ---
 
-## Part 2: Create the DAST Pipeline (15 minutes)
+## Part 2: Create and Configure Pipeline (25 minutes)
 
-### 2.1 Checkout the dast-scan Branch
+### 2.1 Review the Pipeline YAML
 
-**Step 1:** Ensure you have the `dast-scan` branch:
-
-```bash
-git fetch origin
-git checkout dast-scan
-git pull origin dast-scan
-```
-
-### 2.2 Review the Pipeline Changes
-
-The `dast-scan` branch contains the DAST stage in `azure/pipelines/frontend-service.yml`:
+The `dast-scan` branch contains the DAST stage in `azure/pipelines/frontend-service.yml`. Review locally:
 
 ```bash
 cat azure/pipelines/frontend-service.yml
@@ -192,9 +319,9 @@ Key sections to verify:
 | `docker run` | Runs OWASP ZAP scan |
 | `PublishBuildArtifacts@1` | Publishes scan report |
 
-### 2.3 Update Pipeline YAML Variables
+### 2.2 Verify Pipeline Variables
 
-The pipeline already includes required variables. Verify in the YAML:
+The pipeline includes these variables:
 
 ```yaml
 variables:
@@ -203,19 +330,9 @@ variables:
   armServiceConnection: 'arm-service-connection'
 ```
 
-These values should match your Azure deployment.
+Ensure these match your Azure deployment.
 
-### 2.4 Push Changes to Trigger Pipeline
-
-```bash
-git push origin dast-scan
-```
-
----
-
-## Part 3: Configure Azure DevOps Pipeline (15 minutes)
-
-### 3.1 Create the Pipeline
+### 2.3 Create the Pipeline in Azure DevOps
 
 Navigate to: **Pipelines → New pipeline**
 
@@ -233,19 +350,24 @@ Navigate to: **Pipelines → New pipeline**
 
 **Step 6:** Review the YAML and click **"Save"** (do not run yet)
 
-### 3.2 Verify Pipeline Variables
+### 2.4 Populate Pipeline Variables
+
+Before running the pipeline, set the `uniqueSuffix` variable:
 
 Navigate to: **Pipelines → frontend-service → Variables**
 
-Ensure these variables are set (from Pull Request lesson):
+**Step 1:** Retrieve the `uniqueSuffix` from your ARM deployment:
+```bash
+az deployment group show --resource-group rg-latina --name main --query properties.outputs.uniqueSuffix.value
+```
+
+**Step 2:** Add the variable:
 
 | Variable | Value | Notes |
 |----------|-------|-------|
 | `uniqueSuffix` | `<from ARM deployment>` | e.g., `rs25m4je` |
-| `aksServiceConnection` | `aks-service-connection` | Already set |
-| `armServiceConnection` | `arm-service-connection` | Already set in YAML |
 
-### 3.3 Verify Service Connection Access
+### 2.5 Verify Service Connection Access
 
 Navigate to: **Project Settings → Service connections → arm-service-connection**
 
@@ -255,11 +377,23 @@ Navigate to: **Project Settings → Service connections → arm-service-connecti
 
 **Step 3:** If prompted, approve access for the `frontend-service` pipeline
 
+### 2.6 Push Changes to Trigger Pipeline
+
+If you made any local changes, push to the `dast-scan` branch:
+
+```bash
+# Push to ADO
+git push origin dast-scan
+
+# Optionally push to GitHub as well
+git push github dast-scan
+```
+
 ---
 
-## Part 4: Trigger and Monitor DAST Scan (15 minutes)
+## Part 3: Trigger and Monitor DAST Scan (15 minutes)
 
-### 4.1 Run the Pipeline
+### 3.1 Run the Pipeline
 
 Navigate to: **Pipelines → frontend-service**
 
@@ -269,7 +403,7 @@ Navigate to: **Pipelines → frontend-service**
 
 **Step 3:** Click **"Run"**
 
-### 4.2 Monitor Pipeline Execution
+### 3.2 Monitor Pipeline Execution
 
 The pipeline will execute in order:
 
@@ -297,7 +431,7 @@ The pipeline will execute in order:
    └── Promotes to production environment
 ```
 
-### 4.3 Exercise: Monitor DAST Stage
+### 3.3 Exercise: Monitor DAST Stage
 
 **Step 1:** Click on the **"DAST Security Scan"** stage when it starts
 
@@ -317,7 +451,7 @@ Frontend Service URL: http://<EXTERNAL_IP>
 - Frontend service is deployed in `dev` namespace
 - Service has LoadBalancer type with external IP
 
-### 4.4 Review DAST Results
+### 3.4 Review DAST Results
 
 After the DAST scan completes:
 
@@ -331,7 +465,7 @@ After the DAST scan completes:
 
 **Step 5:** Extract and open `zap-report.html` in a browser
 
-### 4.5 Common DAST Findings
+### 3.5 Common DAST Findings
 
 | Finding | Severity | Mitigation |
 |---------|----------|-------------|
@@ -343,9 +477,9 @@ After the DAST scan completes:
 
 ---
 
-## Part 5: Manual Approval and Promotion (10 minutes)
+## Part 4: Manual Approval and Promotion (10 minutes)
 
-### 5.1 Approve Deployment to Test
+### 4.1 Approve Deployment to Test
 
 After DAST scan completes, the pipeline pauses at **"Manual Approval - Promote to Testing"**
 
@@ -362,7 +496,7 @@ After DAST scan completes, the pipeline pauses at **"Manual Approval - Promote t
 
 **Step 5:** Add comments (optional): "DAST scan reviewed, no critical findings"
 
-### 5.2 Approve Deployment to Prod
+### 4.2 Approve Deployment to Prod
 
 After Test deployment succeeds:
 
@@ -374,9 +508,9 @@ After Test deployment succeeds:
 
 ---
 
-## Part 6: Advanced DAST Configuration (Optional)
+## Part 5: Advanced DAST Configuration (Optional)
 
-### 6.1 Full Scan vs Baseline Scan
+### 5.1 Full Scan vs Baseline Scan
 
 The default uses baseline scan. For more thorough testing:
 
@@ -396,7 +530,7 @@ Edit `azure/pipelines/frontend-service.yml` and replace the scan script:
   displayName: 'Run OWASP ZAP Full Scan'
 ```
 
-### 6.2 Exclude Paths from Scan
+### 5.2 Exclude Paths from Scan
 
 To skip certain endpoints (like logout):
 
@@ -413,7 +547,7 @@ To skip certain endpoints (like logout):
   displayName: 'Run OWASP ZAP DAST Scan'
 ```
 
-### 6.3 Configure Branch Trigger
+### 5.3 Configure Branch Trigger
 
 To run DAST on a different branch, update the trigger and conditions:
 
@@ -433,16 +567,22 @@ condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main
 
 ### Pre-Setup Checklist
 
-Before starting, ensure the following are completed:
+Before starting, ensure the following are completed in order:
 
 ```
-1. [ ] Frontend service deployed to AKS dev namespace
-2. [ ] Frontend service has LoadBalancer type with external IP
-3. [ ] arm-service-connection created in Azure DevOps
-4. [ ] Pipeline created from dast-scan branch
-5. [ ] Pipeline variables configured (uniqueSuffix, aksClusterName, etc.)
-6. [ ] Service connection access granted to pipeline
-7. [ ] Pipeline triggered and monitored
+1. [ ] Deploy Azure infrastructure (Step 0)
+2. [ ] Import latina_app repository from GitHub
+3. [ ] Import latina_app_template repository from GitHub
+4. [ ] Clone repository locally and checkout dast-scan branch
+5. [ ] Create aks-service-connection (Kubernetes)
+6. [ ] Create acr-shared-service-connection (Azure Container Registry)
+7. [ ] Create arm-service-connection (Azure Resource Manager)
+8. [ ] Create pipeline from azure/pipelines/frontend-service.yml
+9. [ ] Set uniqueSuffix variable from ARM deployment
+10. [ ] Verify pipeline references latina_app_template repository
+11. [ ] Frontend service deployed to AKS dev namespace
+12. [ ] Frontend service has LoadBalancer type with external IP
+13. [ ] Pipeline triggered and monitored
 ```
 
 ### Pipeline Flow with DAST
@@ -490,13 +630,18 @@ Before starting, ensure the following are completed:
 
 ### Security Checklist
 
-- [ ] `arm-service-connection` created in Azure DevOps
-- [ ] Service connection granted access to pipeline
-- [ ] Pipeline created from `dast-scan` branch
+- [ ] latina_app repository imported from GitHub
+- [ ] latina_app_template repository imported from GitHub
+- [ ] aks-service-connection created and verified
+- [ ] acr-shared-service-connection created and verified
+- [ ] arm-service-connection created and verified
+- [ ] Pipeline created from YAML file
+- [ ] uniqueSuffix variable populated from ARM deployment
+- [ ] Pipeline triggered on `dast-scan` branch
 - [ ] Frontend service deployed with LoadBalancer type
 - [ ] DAST stage completes successfully
 - [ ] DAST report reviewed for vulnerabilities
-- [ ] Manual approval configured for test promotion
+- [ ] Manual approval references DAST results
 - [ ] Security findings addressed before production
 
 ---
