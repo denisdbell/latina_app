@@ -1,7 +1,7 @@
 trigger:
   branches:
     include:
-      - pull-request-permission
+      - dast-scan
   paths:
     include:
       - frontend-service/**
@@ -74,7 +74,7 @@ stages:
 - stage: DeployDev
   displayName: 'Deploy to Development'
   dependsOn: Build
-  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/pull-request-permission'))
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/dast-scan'))
   jobs:
   - template: deploy.yaml@templates
     parameters:
@@ -93,7 +93,7 @@ stages:
 - stage: DASTScan
   displayName: 'DAST Security Scan'
   dependsOn: DeployDev
-  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/pull-request-permission'))
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/dast-scan'))
   jobs:
   - job: DASTScanJob
     steps:
@@ -154,7 +154,7 @@ stages:
 - stage: ApproveTesting
   displayName: 'Manual Approval - Promote to Testing'
   dependsOn: DASTScan
-  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/pull-request-permission'))
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/dast-scan'))
   jobs:
   - job: WaitForApprovalTesting
     pool: server
@@ -167,7 +167,7 @@ stages:
 - stage: DeployTest
   displayName: 'Deploy to Testing'
   dependsOn: ApproveTesting
-  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/pull-request-permission'))
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/dast-scan'))
   jobs:
   - template: deploy.yaml@templates
     parameters:
@@ -188,7 +188,7 @@ stages:
 - stage: ApproveProd
   displayName: 'Manual Approval - Promote to Production'
   dependsOn: DeployTest
-  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/pull-request-permission'))
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/dast-scan'))
   jobs:
   - job: WaitForApprovalProd
     pool: server
@@ -201,7 +201,7 @@ stages:
 - stage: DeployProd
   displayName: 'Deploy to Production'
   dependsOn: ApproveProd
-  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/pull-request-permission'))
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/dast-scan'))
   jobs:
   - template: deploy.yaml@templates
     parameters:
