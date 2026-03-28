@@ -31,8 +31,28 @@ By the end of this lesson, you will be able to:
 - Access to GitHub repositories:
   - https://github.com/denisdbell/latina_app
   - https://github.com/denisdbell/latina_app_template
+- **Publish HTML Reports extension** installed in your Azure DevOps organization (see below)
 
----
+### Required Extension: Publish HTML Reports
+
+The DAST scan produces an HTML report that is published as a pipeline artifact. To view this report directly within Azure DevOps as a separate tab on your pipeline run, you must install the **Publish HTML Reports** extension.
+
+**Install the extension:**
+
+1. Navigate to: **Organization Settings → Extensions → Browse marketplace**  
+   (or visit the [Visual Studio Marketplace](https://marketplace.visualstudio.com/) directly)
+2. Search for **"Publish HTML Reports"** by **LakshayKaushik**
+3. Click **"Get it free"** and install it to your Azure DevOps organization
+
+| Detail | Value |
+|--------|-------|
+| Extension name | Publish HTML Reports |
+| Publisher | LakshayKaushik |
+| Version | 1.2.1 (Latest) |
+| Purpose | Visualize HTML reports (e.g., OWASP ZAP, JMeter) as a separate tab in Azure DevOps pipeline runs |
+
+> **Note:** Without this extension, you can still download the ZAP report artifact manually, but you will not be able to view it inline within Azure DevOps.
+
 
 ## Part 0: Understand DAST (10 minutes)
 
